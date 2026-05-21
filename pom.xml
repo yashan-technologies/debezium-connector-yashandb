@@ -31,31 +31,6 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
-    <repositories>
-        <repository>
-            <id>sics</id>
-            <name>sics</name>
-            <url>https://maven.yasdb.com/repository/maven-public/</url>
-            <!--            <layout>default</layout>-->
-            <!--            <snapshots>-->
-            <!--                <enabled>true</enabled>-->
-            <!--            </snapshots>-->
-        </repository>
-    </repositories>
-
-    <!-- 配置插件仓库 -->
-    <pluginRepositories>
-        <pluginRepository>
-            <id>sics</id>
-            <name>sics</name>
-            <url>https://maven.yasdb.com/repository/maven-public/</url>
-            <layout>default</layout>
-            <snapshots>
-                <enabled>true</enabled>
-            </snapshots>
-        </pluginRepository>
-    </pluginRepositories>
-
     <dependencies>
         <dependency>
             <groupId>io.debezium</groupId>
@@ -63,9 +38,9 @@
             <version>${version.debezium}</version>
         </dependency>
         <dependency>
-            <groupId>com.sics.ystream</groupId>
+            <groupId>com.yashandb</groupId>
             <artifactId>Ystream</artifactId>
-            <version>v23.2.3.50-79-g7c2da3e-SNAPSHOT</version>
+            <version>1.9.27</version>
             <exclusions>
                 <exclusion>
                     <groupId>org.slf4j</groupId>
@@ -74,9 +49,9 @@
             </exclusions>
         </dependency>
         <dependency>
-            <groupId>com.yashandb.jdbc</groupId>
+            <groupId>com.yashandb</groupId>
             <artifactId>yashandb-jdbc</artifactId>
-            <version>1.7.3</version>
+            <version>1.9.27</version>
         </dependency>
         <dependency>
             <groupId>io.debezium</groupId>
