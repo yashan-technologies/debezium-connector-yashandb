@@ -133,7 +133,7 @@ public class YashanDBValueConverters extends JdbcValueConverters {
             case Types.NUMERIC:
                 return getNumericSchema(column);
             case YasTypes.JSON:
-                return Json.builder();
+                return SchemaBuilder.string();
             case YasTypes.TIMESTAMP_TZ:
                 return ZonedTimestamp.builder();
             case YasTypes.DS_INTERVAL:
@@ -233,8 +233,13 @@ public class YashanDBValueConverters extends JdbcValueConverters {
             // The SnapshotReader sees JSON values as UTF-8 encoded strings.
             if (data instanceof YasonObject) {
                 r.deliver(data.toString());
-            } else {
+            } else if (data instanceof String){
                 r.deliver(data);
+            } else if (data == null) {
+                r.deliver(data);
+            }else {
+                // JSON Object is null, un support json type.
+                r.deliver(null);
             }
 
         });

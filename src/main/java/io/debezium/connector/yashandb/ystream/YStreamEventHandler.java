@@ -428,6 +428,7 @@ class YStreamEventHandler {
                 switch (type) {
                     case YasTypes.CLOB:
                     case YasTypes.NCLOB:
+                    case YasTypes.JSON:
                         resolvedChunkValues.put(columnName, chunkValues.getStringValue(currentRecord.getTableMetadata()));
                         break;
 
