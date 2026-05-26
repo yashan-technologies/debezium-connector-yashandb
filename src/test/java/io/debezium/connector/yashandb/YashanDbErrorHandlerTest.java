@@ -5,15 +5,16 @@
  */
 package io.debezium.connector.yashandb;
 
-import io.debezium.connector.base.ChangeEventQueue;
-import io.debezium.pipeline.ErrorHandler;
-import org.junit.jupiter.api.Test;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 import java.io.IOException;
 import java.sql.SQLRecoverableException;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
+import org.junit.jupiter.api.Test;
+
+import io.debezium.connector.base.ChangeEventQueue;
+import io.debezium.pipeline.ErrorHandler;
 
 /**
  * Unit tests for {@link YashanDBErrorHandler}.

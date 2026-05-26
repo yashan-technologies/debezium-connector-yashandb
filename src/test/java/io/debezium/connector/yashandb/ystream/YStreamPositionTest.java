@@ -5,12 +5,13 @@
  */
 package io.debezium.connector.yashandb.ystream;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import org.junit.jupiter.api.Test;
+
 import com.sics.ystream.result.LogPosition;
 import com.sics.ystream.result.Position;
 import com.sics.ystream.result.SystemChangeNumber;
-import org.junit.jupiter.api.Test;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Unit tests for {@link YStreamPosition}.

@@ -5,10 +5,11 @@
  */
 package io.debezium.connector.yashandb;
 
-import io.debezium.relational.Column;
+import static org.assertj.core.api.Assertions.assertThat;
+
 import org.junit.jupiter.api.Test;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import io.debezium.relational.Column;
 
 /**
  * Unit tests for static methods in {@link YashanDBDatabaseSchema}.

@@ -5,18 +5,19 @@
  */
 package io.debezium.connector.yashandb.converters;
 
-import io.debezium.spi.converter.CustomConverter;
-import io.debezium.spi.converter.RelationalColumn;
-import org.junit.jupiter.api.Test;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
+import org.junit.jupiter.api.Test;
+
+import io.debezium.spi.converter.CustomConverter;
+import io.debezium.spi.converter.RelationalColumn;
 
 /**
  * Unit tests for {@link TimeToStringConverter}.

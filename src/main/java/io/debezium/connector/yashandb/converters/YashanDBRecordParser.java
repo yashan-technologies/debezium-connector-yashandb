@@ -5,12 +5,13 @@
  */
 package io.debezium.connector.yashandb.converters;
 
+import java.util.Set;
+
+import org.apache.kafka.connect.errors.DataException;
+
 import io.debezium.converters.recordandmetadata.RecordAndMetadata;
 import io.debezium.converters.spi.RecordParser;
 import io.debezium.util.Collect;
-import org.apache.kafka.connect.errors.DataException;
-
-import java.util.Set;
 
 public class YashanDBRecordParser extends RecordParser {
 

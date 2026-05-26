@@ -5,19 +5,21 @@
  */
 package io.debezium.connector.yashandb;
 
-import com.sics.ystream.result.LogPosition;
-import com.sics.ystream.result.Position;
-import com.sics.ystream.result.SystemChangeNumber;
-import io.debezium.relational.TableId;
-import org.junit.jupiter.api.Test;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 import java.time.Instant;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
+import org.junit.jupiter.api.Test;
+
+import com.sics.ystream.result.LogPosition;
+import com.sics.ystream.result.Position;
+import com.sics.ystream.result.SystemChangeNumber;
+
+import io.debezium.relational.TableId;
 
 /**
  * Unit tests for {@link SourceInfo}.

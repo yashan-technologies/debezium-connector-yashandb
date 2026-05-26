@@ -5,21 +5,23 @@
  */
 package io.debezium.connector.yashandb.ystream;
 
-import com.sics.ystream.metadata.Column;
-import com.sics.ystream.metadata.TableMetadata;
-import com.sics.ystream.result.YstreamChunk;
-import com.yashandb.jdbc.YasTypes;
-import io.debezium.DebeziumException;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-
-import java.nio.charset.StandardCharsets;
-import java.sql.SQLException;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+
+import java.nio.charset.StandardCharsets;
+import java.sql.SQLException;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import com.sics.ystream.metadata.Column;
+import com.sics.ystream.metadata.TableMetadata;
+import com.sics.ystream.result.YstreamChunk;
+import com.yashandb.jdbc.YasTypes;
+
+import io.debezium.DebeziumException;
 
 /**
  * Unit tests for {@link ChunkColumnValues}.

@@ -5,13 +5,14 @@
  */
 package io.debezium.connector.yashandb;
 
-import com.sics.ystream.result.Position;
-import org.junit.jupiter.api.Test;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.HashMap;
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.Test;
+
+import com.sics.ystream.result.Position;
 
 /**
  * Unit tests for static methods in {@link YashanDBOffsetContext}.

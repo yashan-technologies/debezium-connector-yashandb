@@ -5,6 +5,8 @@
  */
 package io.debezium.connector.yashandb;
 
+import java.util.Optional;
+
 import io.debezium.config.Configuration;
 import io.debezium.jdbc.MainConnectionProvidingConnectionFactory;
 import io.debezium.pipeline.ErrorHandler;
@@ -20,8 +22,6 @@ import io.debezium.relational.TableId;
 import io.debezium.spi.schema.DataCollectionId;
 import io.debezium.util.Clock;
 import io.debezium.util.Strings;
-
-import java.util.Optional;
 
 public class YashanDBChangeEventSourceFactory implements ChangeEventSourceFactory<YashanDBPartition, YashanDBOffsetContext> {
 

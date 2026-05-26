@@ -5,6 +5,13 @@
  */
 package io.debezium.connector.yashandb.antlr.listener;
 
+import java.util.List;
+import java.util.stream.Collectors;
+
+import org.antlr.v4.runtime.tree.ParseTreeListener;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import io.debezium.connector.yashandb.antlr.YashanDBDdlParser;
 import io.debezium.connector.yashandb.ddl.parser.gen.YashanDBParser;
 import io.debezium.relational.Column;
@@ -13,12 +20,6 @@ import io.debezium.relational.Table;
 import io.debezium.relational.TableEditor;
 import io.debezium.relational.TableId;
 import io.debezium.text.ParsingException;
-import org.antlr.v4.runtime.tree.ParseTreeListener;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.util.List;
-import java.util.stream.Collectors;
 
 public class CreateTableParserListener extends BaseParserListener {
 
@@ -51,7 +52,8 @@ public class CreateTableParserListener extends BaseParserListener {
                 tableEditor = parser.databaseTables().editOrCreateTable(tableId);
                 super.enterCreate_table(ctx);
             }
-        } else {
+        }
+        else {
             LOGGER.debug("Ignoring CREATE TABLE statement for non-captured table {}", tableId);
         }
     }
@@ -88,7 +90,8 @@ public class CreateTableParserListener extends BaseParserListener {
                 columnDefinitionParserListener = new ColumnDefinitionParserListener(tableEditor, columnEditor, parser, listeners);
                 columnDefinitionParserListener.enterColumn_definition(ctx);
                 listeners.add(columnDefinitionParserListener);
-            } else {
+            }
+            else {
                 columnDefinitionParserListener.setColumnEditor(columnEditor);
             }
         }, tableEditor);

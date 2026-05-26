@@ -5,10 +5,11 @@
  */
 package io.debezium.connector.yashandb.ystream;
 
-import io.debezium.connector.yashandb.Scn;
+import static org.assertj.core.api.Assertions.assertThat;
+
 import org.junit.jupiter.api.Test;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import io.debezium.connector.yashandb.Scn;
 
 /**
  * Unit tests for YStream wrapper classes and adapters.
