@@ -5,16 +5,20 @@
  */
 package io.debezium.connector.yashandb;
 
-import io.debezium.document.Document;
-import io.debezium.relational.RelationalSnapshotChangeEventSource.RelationalSnapshotContext;
-import io.debezium.relational.TableId;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
-import java.util.Optional;
+import io.debezium.document.Document;
+import io.debezium.relational.RelationalSnapshotChangeEventSource.RelationalSnapshotContext;
+import io.debezium.relational.TableId;
 
 /**
  * Abstract implementation of the {@link StreamingAdapter} for which all streaming adapters are derived.
@@ -24,6 +28,11 @@ import java.util.Optional;
 public abstract class AbstractStreamingAdapter implements StreamingAdapter {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(AbstractStreamingAdapter.class);
+
+    /**
+     * YashanDB bind parameter limit
+     */
+    private static final int MAX_TABLES_PER_BATCH = 500;
 
     protected final YashanDBConnectorConfig connectorConfig;
 
@@ -57,8 +66,11 @@ public abstract class AbstractStreamingAdapter implements StreamingAdapter {
             return false;
         }
 
-        final String query = "SELECT 1 FROM DUAL WHERE SCN_TO_TIMESTAMP(" + scn1 + ")=SCN_TO_TIMESTAMP(" + scn2 + ")";
-        try (Statement s = connection.connection().createStatement(); ResultSet rs = s.executeQuery(query)) {
+        final String query = "SELECT 1 FROM DUAL WHERE SCN_TO_TIMESTAMP(?)=SCN_TO_TIMESTAMP(?)";
+        try (PreparedStatement ps = connection.connection().prepareStatement(query)) {
+            ps.setLong(1, scn1.longValue());
+            ps.setLong(2, scn2.longValue());
+            ResultSet rs = ps.executeQuery();
             return rs.next();
         }
     }
@@ -66,7 +78,7 @@ public abstract class AbstractStreamingAdapter implements StreamingAdapter {
     /**
      * Returns the SCN of the latest DDL change to the captured tables.
      * The result will be empty if there is no table to capture as per the configuration.
-     *  查询最近的DDL变更的SCN
+     * 查询最近的DDL变更的SCN
      * @param ctx the snapshot contest, must not be {@code null}
      * @param connection the database connection, must not be {@code null}
      * @return the latest table DDL system change number, never {@code null} but may be empty.
@@ -78,17 +90,37 @@ public abstract class AbstractStreamingAdapter implements StreamingAdapter {
             return Optional.empty();
         }
 
-        StringBuilder lastDdlScnQuery = new StringBuilder("SELECT TIMESTAMP_TO_SCN(MAX(to_timestamp(last_ddl_time)))")
-                .append(" FROM all_objects")
-                .append(" WHERE");
+        // Split into batches to avoid exceeding YashanDB's bind parameter limit (32000)
+        List<List<TableId>> batches = partitionList(new ArrayList<>(ctx.capturedTables), MAX_TABLES_PER_BATCH);
 
-        for (TableId table : ctx.capturedTables) {
-            lastDdlScnQuery.append(" (owner = '" + table.schema() + "' AND object_name = '" + table.table() + "') OR");
+        Scn maxScn = null;
+        for (List<TableId> batch : batches) {
+            Optional<Scn> batchResult = queryBatchDdlScn(batch, connection);
+            if (batchResult.isPresent()) {
+                if (maxScn == null || batchResult.get().compareTo(maxScn) > 0) {
+                    maxScn = batchResult.get();
+                }
+            }
         }
 
-        String query = lastDdlScnQuery.substring(0, lastDdlScnQuery.length() - 3).toString();
-        try (Statement statement = connection.connection().createStatement();
-                ResultSet rs = statement.executeQuery(query)) {
+        return Optional.ofNullable(maxScn);
+    }
+
+    private Optional<Scn> queryBatchDdlScn(List<TableId> tables, YashanDBConnection connection) throws SQLException {
+        final String lastDdlScnQuery = "SELECT TIMESTAMP_TO_SCN(MAX(to_timestamp(last_ddl_time)))" +
+                " FROM all_objects" +
+                " WHERE" +
+                tables.stream()
+                        .map(t -> " (owner=? and object_name=?)")
+                        .collect(Collectors.joining(" OR"));
+
+        try (PreparedStatement stmt = connection.connection().prepareStatement(lastDdlScnQuery)) {
+            int paramIndex = 1;
+            for (TableId table : tables) {
+                stmt.setString(paramIndex++, table.schema());
+                stmt.setString(paramIndex++, table.table());
+            }
+            ResultSet rs = stmt.executeQuery();
 
             if (!rs.next()) {
                 throw new IllegalStateException("Couldn't get latest table DDL SCN");
@@ -113,5 +145,13 @@ public abstract class AbstractStreamingAdapter implements StreamingAdapter {
             }
             throw e;
         }
+    }
+
+    private <T> List<List<T>> partitionList(List<T> list, int batchSize) {
+        List<List<T>> partitions = new ArrayList<>();
+        for (int i = 0; i < list.size(); i += batchSize) {
+            partitions.add(list.subList(i, Math.min(i + batchSize, list.size())));
+        }
+        return partitions;
     }
 }

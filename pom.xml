@@ -18,7 +18,7 @@
         <version.infinispan.protostream>4.6.2.Final</version.infinispan.protostream>
         <version.infinispan>14.0.11.Final</version.infinispan>
         <version.antlr>4.10.1</version.antlr>
-        <version.mockito>3.0.0</version.mockito>
+        <version.mockito>5.14.0</version.mockito>
         <version.kafka>3.5.1</version.kafka>
         <version.awaitility>4.0.1</version.awaitility>
         <version.kafka.connect.avro>7.0.1</version.kafka.connect.avro>
@@ -28,6 +28,8 @@
         <version.logback>1.2.10</version.logback>
         <version.assertj>3.11.1</version.assertj>
         <version.guava>33.2.1-jre</version.guava>
+        <version.yashandb.ystream>1.9.27</version.yashandb.ystream>
+        <version.yashandb.jdbc>1.9.27</version.yashandb.jdbc>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
@@ -40,7 +42,7 @@
         <dependency>
             <groupId>com.yashandb</groupId>
             <artifactId>Ystream</artifactId>
-            <version>1.9.27</version>
+            <version>${version.yashandb.ystream}</version>
             <exclusions>
                 <exclusion>
                     <groupId>org.slf4j</groupId>
@@ -51,7 +53,7 @@
         <dependency>
             <groupId>com.yashandb</groupId>
             <artifactId>yashandb-jdbc</artifactId>
-            <version>1.9.27</version>
+            <version>${version.yashandb.jdbc}</version>
         </dependency>
         <dependency>
             <groupId>io.debezium</groupId>
@@ -138,6 +140,18 @@
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
             <version>${version.junit}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-api</artifactId>
+            <version>5.10.0</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <version>5.10.0</version>
             <scope>test</scope>
         </dependency>
         <dependency>

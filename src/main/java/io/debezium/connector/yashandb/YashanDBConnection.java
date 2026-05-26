@@ -1,20 +1,21 @@
 package io.debezium.connector.yashandb;
 
+import java.sql.SQLException;
+import java.time.Instant;
+import java.util.*;
+import java.util.concurrent.ConcurrentMap;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.yashandb.jdbc.YasTypes;
+
 import io.debezium.DebeziumException;
 import io.debezium.config.Field;
 import io.debezium.jdbc.JdbcConfiguration;
 import io.debezium.jdbc.JdbcConnection;
 import io.debezium.relational.ColumnEditor;
 import io.debezium.relational.TableId;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.sql.SQLException;
-import java.time.Instant;
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 public class YashanDBConnection extends JdbcConnection {
     private static final Logger LOGGER = LoggerFactory.getLogger(YashanDBConnection.class);
@@ -24,7 +25,6 @@ public class YashanDBConnection extends JdbcConnection {
     private static final Field URL = Field.create("url", "Raw JDBC url");
 
     private static final int YASHANDB_UNSET_SCALE = -127;
-
 
     /** Dialect query field. */
     enum DialectQueryField {
@@ -86,34 +86,38 @@ public class YashanDBConnection extends JdbcConnection {
 
     public static String connectionString(JdbcConfiguration config) {
         return config.getString(URL) != null ? config.getString(URL)
-                : String.format("jdbc:yasdb://%s:%s/%s",config.getString(JdbcConfiguration.HOSTNAME),config.getString(JdbcConfiguration.PORT),config.getString(JdbcConfiguration.DATABASE));
+                : String.format("jdbc:yasdb://%s:%s/%s", config.getString(JdbcConfiguration.HOSTNAME), config.getString(JdbcConfiguration.PORT),
+                        config.getString(JdbcConfiguration.DATABASE));
     }
 
     public String getTableMetadataDdl(TableId tableId) throws SQLException {
-        final String schema = tableId.schema();
-        final String table = tableId.table();
-        final String fqtn = schema + "." + table;
-        try {
-            final String sql = "SELECT dbms_metadata.get_ddl('TABLE','" + table + "','" + schema + "') FROM DUAL";
-            return queryAndMap(sql, rs -> {
-                if (!rs.next()) {
-                    throw new DebeziumException("Could not get DDL metadata for table: " + fqtn);
-                }
-                return rs.getString(1);
-            });
-        }
-        catch (SQLException e) {
-            throw new SQLException("Failed to get table DDL via dbms_metadata.get_ddl('TABLE') for " + fqtn, e);
-        }
+        return prepareQueryAndMap(
+                "SELECT dbms_metadata.get_ddl('TABLE',?,?) FROM DUAL",
+                ps -> {
+                    ps.setString(1, tableId.table());
+                    ps.setString(2, tableId.schema());
+                },
+                rs -> {
+                    if (!rs.next()) {
+                        throw new DebeziumException("Could not get DDL metadata for table: " + tableId);
+                    }
+
+                    return rs.getString(1);
+                });
     }
 
     public boolean isTableExists(String tableName) throws SQLException {
-        return queryAndMap("SELECT COUNT(1) FROM USER_TABLES WHERE TABLE_NAME = '" + tableName + "'",
+        return prepareQueryAndMap("SELECT COUNT(1) FROM USER_TABLES WHERE TABLE_NAME = ?",
+                ps -> ps.setString(1, tableName),
                 rs -> rs.next() && rs.getLong(1) > 0);
     }
 
     public boolean isTableExists(TableId tableId) throws SQLException {
-        return queryAndMap("SELECT COUNT(1) FROM ALL_TABLES WHERE OWNER = '" + tableId.schema() + "' AND TABLE_NAME = '" + tableId.table() + "'",
+        return prepareQueryAndMap("SELECT COUNT(1) FROM ALL_TABLES WHERE OWNER = ? AND TABLE_NAME = ?",
+                ps -> {
+                    ps.setString(1, tableId.schema());
+                    ps.setString(2, tableId.table());
+                },
                 rs -> rs.next() && rs.getLong(1) > 0);
     }
 
@@ -176,9 +180,10 @@ public class YashanDBConnection extends JdbcConnection {
             throw new DebeziumException("Unexpected error while connecting to YashanDB and looking at LOG_MODE mode: ", e);
         }
     }
+
     public boolean tableIsEmptyAsOfScn(String sql) throws SQLException {
         return queryAndMap(sql, (rs) -> {
-            LOGGER.trace("get table is empty,sql:{}",sql);
+            LOGGER.trace("get table is empty,sql:{}", sql);
             return !rs.next();
         });
     }
@@ -194,40 +199,40 @@ public class YashanDBConnection extends JdbcConnection {
                 SnapshotTableSplitInfo splitInfo = splitInfoMap.get(new TableId("", schema, tableName));
                 if (splitInfo != null) {
                     splitInfo.increaseSize(rs.getInt(DialectQueryField.DATA_SIZE.getName()));
-                } else {
+                }
+                else {
                     LOGGER.error("The table {}.{} is not in the application cache", schema, tableName);
                 }
             }
-            LOGGER.trace("get table size,sql:{}",sql);
+            LOGGER.trace("get table size,sql:{}", sql);
         });
     }
-    public void batchCheckTablesArePartitioned(String schema,String sql,ConcurrentMap<TableId, YaShanDBPartitionInfo> tablePartitionMap)
+
+    public void batchCheckTablesArePartitioned(String schema, String sql, ConcurrentMap<TableId, YaShanDBPartitionInfo> tablePartitionMap)
             throws SQLException {
         query(sql, (rs) -> {
             while (rs.next()) {
                 final String name = rs.getString(1);
                 tablePartitionMap.put(
-                        new TableId("",schema,rs.getString(1)),
-                        new YaShanDBPartitionInfo(schema,rs.getString(1),Boolean.parseBoolean(rs.getString(2))));
+                        new TableId("", schema, rs.getString(1)),
+                        new YaShanDBPartitionInfo(schema, rs.getString(1), Boolean.parseBoolean(rs.getString(2))));
             }
             LOGGER.trace("get Partitioned,sql: {}", sql);
         });
 
     }
 
-    public void queryTablesPartitionInfor(String sql,ArrayList<YaShanDBPartitionInfo.SubPartitionInfo> tablePartitionInfor)
+    public void queryTablesPartitionInfor(String sql, ArrayList<YaShanDBPartitionInfo.SubPartitionInfo> tablePartitionInfor)
             throws SQLException {
         query(sql, (rs) -> {
             while (rs.next()) {
                 tablePartitionInfor.add(
-                        new YaShanDBPartitionInfo.SubPartitionInfo(rs.getString(2),rs.getString(3),rs.getLong(4)));
+                        new YaShanDBPartitionInfo.SubPartitionInfo(rs.getString(2), rs.getString(3), rs.getLong(4)));
             }
             LOGGER.trace("get tables  partition infor,sql: {}", sql);
         });
 
     }
-
-
 
     protected Set<TableId> getAllTableIds(String catalogName) throws SQLException {
         final String query = "select owner, table_name from all_tables ";
@@ -244,15 +249,9 @@ public class YashanDBConnection extends JdbcConnection {
     }
 
     public Optional<Instant> getScnToTimestamp(Scn scn) throws SQLException {
-        try {
-            return queryAndMap("SELECT scn_to_timestamp(" + scn + ") FROM DUAL", rs -> rs.next()
-                    ? Optional.of(rs.getTimestamp(1).toInstant())
-                    : Optional.empty());
-        }
-        catch (SQLException e) {
-            // Any other SQLException should be thrown
-            throw e;
-        }
+        return prepareQueryAndMap("SELECT scn_to_timestamp(?) FROM DUAL",
+                ps -> ps.setLong(1, scn.longValue()),
+                rs -> rs.next() ? Optional.of(rs.getTimestamp(1).toInstant()) : Optional.empty());
     }
 
     @Override
@@ -270,7 +269,8 @@ public class YashanDBConnection extends JdbcConnection {
         }
         return column;
     }
-    public void queryDatafileInfo(String sql,HashMap<String, Integer> datafileMap)
+
+    public void queryDatafileInfo(String sql, HashMap<String, Integer> datafileMap)
             throws SQLException {
         query(sql, (rs) -> {
             while (rs.next()) {
