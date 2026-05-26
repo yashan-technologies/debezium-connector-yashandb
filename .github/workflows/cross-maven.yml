@@ -1,0 +1,88 @@
+#
+# Copyright Debezium Authors
+#
+# Licensed under the Apache Software License version 2.0, available at http://www.apache.org/licenses/LICENSE-2.0
+#
+# Cross CI workflow triggered on pull_request event
+# Builds Debezium core before building YashanDB connector
+
+name: Cross Maven CI
+
+on:
+  pull_request:
+    branches:
+      - main
+      - 1.*
+      - 2.*
+      - 3.*
+      - 4.*
+    paths-ignore:
+      - '*.md'
+
+jobs:
+  # Checks that all commits contain sign-offs
+  check-signed-commits:
+    name: Check signed commits
+    runs-on: ubuntu-latest
+    steps:
+      - uses: debezium/dbz/.github/actions/check-dco@main
+  build:
+    needs: [ check-signed-commits ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout YashanDB repository
+        uses: actions/checkout@v4
+        with:
+          path: yashandb
+
+      - name: Check if pull request branch exists in debezium main repository
+        id: branch
+        env:
+          branch_name: ${{ github.head_ref }}
+        run: |
+          curl --silent -X "GET" https://api.github.com/repos/debezium/debezium/pulls | jq '.[] | {branch: .head.ref}' | jq -r '.branch' >> SORTED_PULLS.txt
+
+          while IFS=" " read -r BRANCH;
+          do
+            if grep -q "$branch_name" <<< "$BRANCH"; then
+              echo "BRANCH_FOUND=true" >> $GITHUB_OUTPUT
+            fi
+          done < SORTED_PULLS.txt
+
+      - name: Checkout core repository with pull request branch
+        if: ${{ steps.branch.outputs.BRANCH_FOUND == 'true' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.user.login }}/debezium
+          ref: ${{ github.head_ref }}
+          path: core
+
+      - name: Checkout core repository with default base branch
+        if: ${{ steps.branch.outputs.BRANCH_FOUND != 'true' }}
+        uses: actions/checkout@v4
+        with:
+          repository: debezium/debezium
+          ref: ${{ github.base_ref }}
+          path: core
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: 11
+          cache: 'maven'
+
+      - name: Cache Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Maven build YashanDB
+        run: |
+          cd yashandb
+          mvn clean install -Passembly \
+            -Dhttp.keepAlive=false \
+            -Dmaven.wagon.http.pool=false \
+            -Dmaven.wagon.httpconnectionManager.ttlSeconds=120
