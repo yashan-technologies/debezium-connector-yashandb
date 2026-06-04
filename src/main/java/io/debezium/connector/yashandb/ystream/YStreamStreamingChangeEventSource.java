@@ -58,6 +58,7 @@ public class YStreamStreamingChangeEventSource implements StreamingChangeEventSo
      */
     private final AtomicReference<PositionAndScn> lcrMessage = new AtomicReference<>();
     private YashanDBOffsetContext effectiveOffset;
+    private volatile YStreamPosition lastAppliedPosition = null;
 
     public YStreamStreamingChangeEventSource(YashanDBConnectorConfig connectorConfig, YashanDBConnection jdbcConnection,
                                              EventDispatcher<YashanDBPartition, TableId> dispatcher, ErrorHandler errorHandler,
@@ -175,8 +176,11 @@ public class YStreamStreamingChangeEventSource implements StreamingChangeEventSo
     }
 
     private void sendPublishedPosition(final YStreamPosition lcrPosition, final Scn scn) {
-        if (lcrPosition.getRawPosition().compareTo(this.effectiveOffset.getRecoverPosition()) > 0) {
+        if (lcrPosition.getRawPosition().compareTo(this.effectiveOffset.getRecoverPosition()) > 0
+         && (lastAppliedPosition==null
+             || lcrPosition.getRawPosition().compareTo(lastAppliedPosition.getRawPosition()) > 0)) {
             lcrMessage.set(new PositionAndScn(lcrPosition, scn));
+            lastAppliedPosition = lcrPosition;
         }
     }
 
