@@ -5,6 +5,18 @@
  */
 package io.debezium.connector.yashandb;
 
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
+
+import org.apache.kafka.connect.source.SourceRecord;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import io.debezium.DebeziumException;
 import io.debezium.config.CommonConnectorConfig;
 import io.debezium.config.Configuration;
@@ -27,17 +39,6 @@ import io.debezium.schema.SchemaFactory;
 import io.debezium.schema.SchemaNameAdjuster;
 import io.debezium.spi.topic.TopicNamingStrategy;
 import io.debezium.util.Clock;
-import org.apache.kafka.connect.source.SourceRecord;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.stream.Collectors;
 
 public class YashanDBConnectorTask extends BaseSourceTask<YashanDBPartition, YashanDBOffsetContext> {
 
@@ -185,9 +186,10 @@ public class YashanDBConnectorTask extends BaseSourceTask<YashanDBPartition, Yas
     }
 
     private void validateYStreamServer(YashanDBConnectorConfig config) {
-        try (Statement statement = jdbcConnection.connection().createStatement()) {
-            ResultSet resultSet = statement.executeQuery(
-                    String.format("select SERVER_ID,SERVER_NAME,STATUS from SYS.V_$YSTREAM_SERVER where SERVER_NAME = '%s'", config.getYstreamServerName()));
+        try (PreparedStatement stmt = jdbcConnection.connection().prepareStatement(
+                "select SERVER_ID,SERVER_NAME,STATUS from SYS.V_$YSTREAM_SERVER where SERVER_NAME = ?")) {
+            stmt.setString(1, config.getYstreamServerName());
+            ResultSet resultSet = stmt.executeQuery();
             if (resultSet.next()) {
                 String status = resultSet.getString(3);
                 if (!(Objects.equals(status, "RUNNING") || Objects.equals(status, "STARTED"))) {
@@ -203,7 +205,7 @@ public class YashanDBConnectorTask extends BaseSourceTask<YashanDBPartition, Yas
             }
         }
         catch (SQLException e) {
-            throw new DebeziumException("Query 'select SERVER_ID,SERVER_NAME,STATUS from SYS.V_$YSTREAM_SERVE' fail, please check database status or user Permissions",
+            throw new DebeziumException("Query 'select SERVER_ID,SERVER_NAME,STATUS from SYS.V_$YSTREAM_SERVER' fail, please check database status or user Permissions",
                     e);
         }
     }
