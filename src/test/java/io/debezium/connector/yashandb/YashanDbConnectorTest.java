@@ -5,18 +5,19 @@
  */
 package io.debezium.connector.yashandb;
 
-import io.debezium.connector.common.RelationalBaseSourceConnector;
-import org.apache.kafka.common.config.ConfigDef;
-import org.apache.kafka.connect.connector.Connector;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.apache.kafka.common.config.ConfigDef;
+import org.apache.kafka.connect.connector.Connector;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import io.debezium.connector.common.RelationalBaseSourceConnector;
 
 /**
  * Unit tests for {@link YashanDBConnector}.

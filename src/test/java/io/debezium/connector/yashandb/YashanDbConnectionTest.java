@@ -5,16 +5,17 @@
  */
 package io.debezium.connector.yashandb;
 
-import io.debezium.jdbc.JdbcConfiguration;
-import io.debezium.relational.TableId;
-import org.junit.jupiter.api.Test;
-
-import java.util.Optional;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.withSettings;
+
+import java.util.Optional;
+
+import org.junit.jupiter.api.Test;
+
+import io.debezium.jdbc.JdbcConfiguration;
+import io.debezium.relational.TableId;
 
 /**
  * Unit tests for {@link YashanDBConnection}.

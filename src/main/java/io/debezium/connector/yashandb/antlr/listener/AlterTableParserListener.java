@@ -5,6 +5,15 @@
  */
 package io.debezium.connector.yashandb.antlr.listener;
 
+import static io.debezium.antlr.AntlrDdlParser.getText;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import org.antlr.v4.runtime.tree.ParseTreeListener;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import io.debezium.connector.yashandb.antlr.YashanDBDdlParser;
 import io.debezium.connector.yashandb.ddl.parser.gen.YashanDBParser;
 import io.debezium.relational.Column;
@@ -12,14 +21,6 @@ import io.debezium.relational.ColumnEditor;
 import io.debezium.relational.TableEditor;
 import io.debezium.relational.TableId;
 import io.debezium.text.ParsingException;
-import org.antlr.v4.runtime.tree.ParseTreeListener;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.util.ArrayList;
-import java.util.List;
-
-import static io.debezium.antlr.AntlrDdlParser.getText;
 
 /**
  * Parser listener that is parsing Oracle ALTER TABLE statements

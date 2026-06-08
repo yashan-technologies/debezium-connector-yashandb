@@ -5,6 +5,11 @@
  */
 package io.debezium.connector.yashandb.ystream;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+
+import org.junit.jupiter.api.Test;
+
 import io.debezium.connector.yashandb.YashanDBConnectorConfig;
 import io.debezium.connector.yashandb.YashanDBDatabaseSchema;
 import io.debezium.connector.yashandb.YashanDBOffsetContext;
@@ -13,10 +18,6 @@ import io.debezium.connector.yashandb.YashanDBStreamingChangeEventSourceMetrics;
 import io.debezium.pipeline.ErrorHandler;
 import io.debezium.pipeline.EventDispatcher;
 import io.debezium.util.Clock;
-import org.junit.jupiter.api.Test;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
 
 /**
  * Unit tests for {@link YStreamEventHandler}.

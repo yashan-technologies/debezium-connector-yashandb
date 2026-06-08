@@ -5,12 +5,13 @@
  */
 package io.debezium.connector.yashandb;
 
-import io.debezium.config.Field;
-import org.junit.jupiter.api.Test;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.Test;
+
+import io.debezium.config.Field;
 
 /**
  * Unit tests for {@link YashanDBConnectorConfig} configuration constants.

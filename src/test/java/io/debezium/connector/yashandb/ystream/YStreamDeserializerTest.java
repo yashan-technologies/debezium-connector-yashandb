@@ -5,14 +5,15 @@
  */
 package io.debezium.connector.yashandb.ystream;
 
-import com.sics.ystream.exception.YstreamException;
-import com.sics.ystream.metadata.TableMetadata;
-import com.sics.ystream.result.YstreamLcrInterface;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
+import com.sics.ystream.exception.YstreamException;
+import com.sics.ystream.metadata.TableMetadata;
+import com.sics.ystream.result.YstreamLcrInterface;
 
 /**
  * Unit tests for {@link YStreamDeserializer}.

@@ -5,17 +5,18 @@
  */
 package io.debezium.connector.yashandb;
 
-import io.debezium.config.Field;
-import io.debezium.connector.yashandb.YashanDBConnectorConfig.IntervalHandlingMode;
-import io.debezium.connector.yashandb.YashanDBConnectorConfig.SnapshotLockingMode;
-import io.debezium.connector.yashandb.YashanDBConnectorConfig.SnapshotMode;
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.util.List;
+
 import org.apache.kafka.common.config.ConfigDef;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import io.debezium.config.Field;
+import io.debezium.connector.yashandb.YashanDBConnectorConfig.IntervalHandlingMode;
+import io.debezium.connector.yashandb.YashanDBConnectorConfig.SnapshotLockingMode;
+import io.debezium.connector.yashandb.YashanDBConnectorConfig.SnapshotMode;
 
 /**
  * Unit tests for {@link YashanDBConnectorConfig} and its nested enums.

@@ -5,10 +5,11 @@
  */
 package io.debezium.connector.yashandb;
 
-import io.debezium.config.Configuration;
+import static org.assertj.core.api.Assertions.assertThat;
+
 import org.junit.jupiter.api.Test;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import io.debezium.config.Configuration;
 
 /**
  * Unit tests for {@link YashanDBStreamingChangeEventSourceMetrics}.

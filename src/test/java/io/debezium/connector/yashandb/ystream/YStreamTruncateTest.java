@@ -5,16 +5,17 @@
  */
 package io.debezium.connector.yashandb.ystream;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+
+import org.junit.jupiter.api.Test;
+
 import com.sics.ystream.result.DdlType;
 import com.sics.ystream.result.LogPosition;
 import com.sics.ystream.result.ObjectType;
 import com.sics.ystream.result.Position;
 import com.sics.ystream.result.SystemChangeNumber;
 import com.sics.ystream.result.YstreamMetadata;
-import org.junit.jupiter.api.Test;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
 
 /**
  * Unit tests for {@link YStreamTruncate}.

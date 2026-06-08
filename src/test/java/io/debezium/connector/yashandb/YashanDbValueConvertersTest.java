@@ -5,19 +5,20 @@
  */
 package io.debezium.connector.yashandb;
 
-import io.debezium.config.Configuration;
-import io.debezium.relational.Column;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+import java.math.BigDecimal;
+import java.sql.Clob;
+
 import org.apache.kafka.connect.data.Field;
 import org.apache.kafka.connect.data.SchemaBuilder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.math.BigDecimal;
-import java.sql.Clob;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
+import io.debezium.config.Configuration;
+import io.debezium.relational.Column;
 
 /**
  * Unit tests for {@link YashanDBValueConverters}.

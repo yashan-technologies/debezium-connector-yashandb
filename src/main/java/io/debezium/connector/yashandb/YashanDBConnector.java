@@ -5,20 +5,21 @@
  */
 package io.debezium.connector.yashandb;
 
-import io.debezium.config.Configuration;
-import io.debezium.connector.common.RelationalBaseSourceConnector;
-import io.debezium.relational.RelationalDatabaseConnectorConfig;
+import java.sql.SQLException;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.ConfigValue;
 import org.apache.kafka.connect.connector.Task;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.sql.SQLException;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import io.debezium.config.Configuration;
+import io.debezium.connector.common.RelationalBaseSourceConnector;
+import io.debezium.relational.RelationalDatabaseConnectorConfig;
 
 public class YashanDBConnector extends RelationalBaseSourceConnector {
 

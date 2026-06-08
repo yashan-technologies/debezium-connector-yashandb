@@ -5,15 +5,15 @@
  */
 package io.debezium.connector.yashandb.antlr.listener;
 
+import java.util.List;
+import java.util.stream.Collectors;
+
 import io.debezium.connector.yashandb.antlr.YashanDBDdlParser;
 import io.debezium.connector.yashandb.ddl.parser.gen.YashanDBParser;
 import io.debezium.relational.Column;
 import io.debezium.relational.Table;
 import io.debezium.relational.TableEditor;
 import io.debezium.relational.TableId;
-
-import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * This class is parsing Oracle table's column comment statements.

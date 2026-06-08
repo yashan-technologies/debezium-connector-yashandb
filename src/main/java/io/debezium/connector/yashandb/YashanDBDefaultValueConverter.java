@@ -5,26 +5,9 @@
  */
 package io.debezium.connector.yashandb;
 
-import com.yashandb.jdbc.YasTypes;
-import io.debezium.DebeziumException;
-import io.debezium.annotation.Immutable;
-import io.debezium.annotation.ThreadSafe;
-import io.debezium.relational.Column;
-import io.debezium.relational.DefaultValueConverter;
-import io.debezium.relational.ValueConverter;
-import io.debezium.util.Collect;
-import io.debezium.util.Strings;
-import org.apache.kafka.connect.data.Field;
-import org.apache.kafka.connect.data.Schema;
-import org.apache.kafka.connect.data.SchemaBuilder;
-import org.apache.kafka.connect.data.Struct;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.sql.Time;
-import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
@@ -33,6 +16,24 @@ import java.time.temporal.ChronoField;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import org.apache.kafka.connect.data.Field;
+import org.apache.kafka.connect.data.Schema;
+import org.apache.kafka.connect.data.SchemaBuilder;
+import org.apache.kafka.connect.data.Struct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.yashandb.jdbc.YasTypes;
+
+import io.debezium.DebeziumException;
+import io.debezium.annotation.Immutable;
+import io.debezium.annotation.ThreadSafe;
+import io.debezium.relational.Column;
+import io.debezium.relational.DefaultValueConverter;
+import io.debezium.relational.ValueConverter;
+import io.debezium.util.Collect;
+import io.debezium.util.Strings;
 
 /**
  * @author Chris Cranford
@@ -102,7 +103,8 @@ public class YashanDBDefaultValueConverter implements DefaultValueConverter {
                 return Optional.empty();
             }
             return Optional.ofNullable(convertedDefaultValue);
-        } catch (Exception e) {
+        }
+        catch (Exception e) {
             LOGGER.warn("Cannot parse column default value '{}' to type '{}'.  Expression evaluation is not supported.", defaultValue, dataType);
             LOGGER.debug("Parsing failed due to error", e);
             return Optional.empty();
@@ -263,7 +265,6 @@ public class YashanDBDefaultValueConverter implements DefaultValueConverter {
         };
     }
 
-
     private static DefaultValueMapper convertIntervalDaySecondStringLiteral() {
         return (column, value) -> {
             return value;
@@ -286,20 +287,24 @@ public class YashanDBDefaultValueConverter implements DefaultValueConverter {
 
     private static DefaultValueMapper convertDate(YashanDBConnection jdbcConnection) {
         return (column, value) -> {
-            if ("SYSDATE".equalsIgnoreCase(value.trim())||value.trim().toUpperCase().equalsIgnoreCase("CURRENT_TIMESTAMP")) {
+            if ("SYSDATE".equalsIgnoreCase(value.trim()) || value.trim().toUpperCase().equalsIgnoreCase("CURRENT_TIMESTAMP")) {
                 if (column.isOptional()) {
                     // If the column is optional, the default value is ignored
                     return null;
-                } else if (column.jdbcType() == YasTypes.TIMESTAMP_TZ) {
+                }
+                else if (column.jdbcType() == YasTypes.TIMESTAMP_TZ) {
                     // If the column is a TIMESTAMP WITH [LOCAL] TIME ZONE, the non-null default is based on EPOCH
                     return Date.from(Instant.EPOCH);
-                } else if (column.jdbcType() == YasTypes.DATE || column.jdbcType() == YasTypes.TIMESTAMP) {
+                }
+                else if (column.jdbcType() == YasTypes.DATE || column.jdbcType() == YasTypes.TIMESTAMP) {
                     // If the column is a TIMESTAMP WITH [LOCAL] TIME ZONE, the non-null default is based on EPOCH
                     return Date.from(Instant.EPOCH);
-                } else if (column.jdbcType() == YasTypes.TIME) {
+                }
+                else if (column.jdbcType() == YasTypes.TIME) {
                     // If the column is a TIMESTAMP WITH [LOCAL] TIME ZONE, the non-null default is based on EPOCH
                     return Time.from(Instant.EPOCH);
-                } else {
+                }
+                else {
                     // For all other temporal types, return "0".
                     // The return is a string-value as the OracleValueConverters know how to explicitly infer
                     // whether to emit the final converted value as either a string or numeric value based on
@@ -309,14 +314,16 @@ public class YashanDBDefaultValueConverter implements DefaultValueConverter {
             }
 
             String defaultValue;
-            if (value.startsWith("'")){
-                defaultValue = value.substring(1,value.length()-1);
-            } else {
+            if (value.startsWith("'")) {
+                defaultValue = value.substring(1, value.length() - 1);
+            }
+            else {
                 defaultValue = value;
             }
-            if (DATE_PATTERN.matcher(defaultValue).matches()){
+            if (DATE_PATTERN.matcher(defaultValue).matches()) {
                 return java.sql.Date.valueOf(LocalDate.parse(defaultValue));
-            }else if (DATE_PATTERN.matcher(defaultValue).matches()){
+            }
+            else if (DATE_PATTERN.matcher(defaultValue).matches()) {
                 return Date.from(LocalDateTime.parse(TIMESTAMP_PATTERN.matcher(defaultValue).group(0)).atZone(ZoneId.systemDefault()).toInstant());
             }
 
@@ -326,14 +333,16 @@ public class YashanDBDefaultValueConverter implements DefaultValueConverter {
 
     private static DefaultValueMapper convertTime(YashanDBConnection jdbcConnection) {
         return (column, value) -> {
-            if ("SYSDATE".equalsIgnoreCase(value.trim())||value.trim().toUpperCase().equalsIgnoreCase("CURRENT_TIMESTAMP")) {
+            if ("SYSDATE".equalsIgnoreCase(value.trim()) || value.trim().toUpperCase().equalsIgnoreCase("CURRENT_TIMESTAMP")) {
                 if (column.isOptional()) {
                     // If the column is optional, the default value is ignored
                     return null;
-                } else if (column.jdbcType() == YasTypes.TIME) {
+                }
+                else if (column.jdbcType() == YasTypes.TIME) {
                     // If the column is a TIMESTAMP WITH [LOCAL] TIME ZONE, the non-null default is based on EPOCH
                     return Time.from(Instant.EPOCH);
-                } else {
+                }
+                else {
                     // For all other temporal types, return "0".
                     // The return is a string-value as the OracleValueConverters know how to explicitly infer
                     // whether to emit the final converted value as either a string or numeric value based on
@@ -343,24 +352,25 @@ public class YashanDBDefaultValueConverter implements DefaultValueConverter {
             }
 
             String defaultValue;
-            if (value.startsWith("'")){
-                defaultValue = value.substring(1,value.length()-1);
-            } else {
+            if (value.startsWith("'")) {
+                defaultValue = value.substring(1, value.length() - 1);
+            }
+            else {
                 defaultValue = value;
             }
 
-            return convertToDuration(column,defaultValue);
+            return convertToDuration(column, defaultValue);
         };
     }
 
-
     private static Object convertToDuration(Column column, String value) {
         String data = "";
-        if (value!=null) {
+        if (value != null) {
             String trim = value.trim();
-            if (value.startsWith("'")){
-                data = trim.substring(1,trim.length()-1);
-            }else {
+            if (value.startsWith("'")) {
+                data = trim.substring(1, trim.length() - 1);
+            }
+            else {
                 data = trim;
             }
         }
@@ -395,31 +405,34 @@ public class YashanDBDefaultValueConverter implements DefaultValueConverter {
 
         final Duration duration = hours >= 0
                 ? Duration
-                .ofHours(hours)
-                .plusMinutes(minutes)
-                .plusSeconds(seconds)
-                .plusNanos(nanoSeconds)
+                        .ofHours(hours)
+                        .plusMinutes(minutes)
+                        .plusSeconds(seconds)
+                        .plusNanos(nanoSeconds)
                 : Duration
-                .ofHours(hours)
-                .minusMinutes(minutes)
-                .minusSeconds(seconds)
-                .minusNanos(nanoSeconds);
+                        .ofHours(hours)
+                        .minusMinutes(minutes)
+                        .minusSeconds(seconds)
+                        .minusNanos(nanoSeconds);
         return isNegative && !duration.isNegative() ? duration.negated() : duration;
     }
 
     private static DefaultValueMapper convertTimestamp(YashanDBConnection jdbcConnection) {
         return (column, value) -> {
-            if ("SYSDATE".equalsIgnoreCase(value.trim())||value.trim().toUpperCase().equalsIgnoreCase("CURRENT_TIMESTAMP")) {
+            if ("SYSDATE".equalsIgnoreCase(value.trim()) || value.trim().toUpperCase().equalsIgnoreCase("CURRENT_TIMESTAMP")) {
                 if (column.isOptional()) {
                     // If the column is optional, the default value is ignored
                     return null;
-                } if (column.jdbcType() == YasTypes.TIMESTAMP) {
+                }
+                if (column.jdbcType() == YasTypes.TIMESTAMP) {
                     // If the column is a TIMESTAMP WITH [LOCAL] TIME ZONE, the non-null default is based on EPOCH
                     return Date.from(Instant.EPOCH);
-                } else if (column.jdbcType() == YasTypes.TIME) {
+                }
+                else if (column.jdbcType() == YasTypes.TIME) {
                     // If the column is a TIMESTAMP WITH [LOCAL] TIME ZONE, the non-null default is based on EPOCH
                     return Time.from(Instant.EPOCH);
-                } else {
+                }
+                else {
                     // For all other temporal types, return "0".
                     // The return is a string-value as the OracleValueConverters know how to explicitly infer
                     // whether to emit the final converted value as either a string or numeric value based on
@@ -429,14 +442,16 @@ public class YashanDBDefaultValueConverter implements DefaultValueConverter {
             }
 
             String defaultValue;
-            if (value.startsWith("'")){
-                defaultValue = value.substring(1,value.length()-1);
-            } else {
+            if (value.startsWith("'")) {
+                defaultValue = value.substring(1, value.length() - 1);
+            }
+            else {
                 defaultValue = value;
             }
-            if (DATE_PATTERN.matcher(defaultValue).matches()){
+            if (DATE_PATTERN.matcher(defaultValue).matches()) {
                 return java.sql.Date.valueOf(LocalDate.parse(defaultValue));
-            }else if (DATE_PATTERN.matcher(defaultValue).matches()){
+            }
+            else if (DATE_PATTERN.matcher(defaultValue).matches()) {
                 return Date.from(LocalDateTime.parse(TIMESTAMP_PATTERN.matcher(defaultValue).group(0)).atZone(ZoneId.systemDefault()).toInstant());
             }
 
@@ -446,20 +461,24 @@ public class YashanDBDefaultValueConverter implements DefaultValueConverter {
 
     private static DefaultValueMapper castTemporalFunctionCall(YashanDBConnection jdbcConnection) {
         return (column, value) -> {
-            if ("SYSDATE".equalsIgnoreCase(value.trim())||value.trim().toUpperCase().equalsIgnoreCase("CURRENT_TIMESTAMP")) {
+            if ("SYSDATE".equalsIgnoreCase(value.trim()) || value.trim().toUpperCase().equalsIgnoreCase("CURRENT_TIMESTAMP")) {
                 if (column.isOptional()) {
                     // If the column is optional, the default value is ignored
                     return null;
-                } else if (column.jdbcType() == YasTypes.TIMESTAMP_TZ) {
+                }
+                else if (column.jdbcType() == YasTypes.TIMESTAMP_TZ) {
                     // If the column is a TIMESTAMP WITH [LOCAL] TIME ZONE, the non-null default is based on EPOCH
                     return Date.from(Instant.EPOCH);
-                } else if (column.jdbcType() == YasTypes.DATE || column.jdbcType() == YasTypes.TIMESTAMP) {
+                }
+                else if (column.jdbcType() == YasTypes.DATE || column.jdbcType() == YasTypes.TIMESTAMP) {
                     // If the column is a TIMESTAMP WITH [LOCAL] TIME ZONE, the non-null default is based on EPOCH
                     return Date.from(Instant.EPOCH);
-                } else if (column.jdbcType() == YasTypes.TIME) {
+                }
+                else if (column.jdbcType() == YasTypes.TIME) {
                     // If the column is a TIMESTAMP WITH [LOCAL] TIME ZONE, the non-null default is based on EPOCH
                     return Time.from(Instant.EPOCH);
-                } else {
+                }
+                else {
                     // For all other temporal types, return "0".
                     // The return is a string-value as the OracleValueConverters know how to explicitly infer
                     // whether to emit the final converted value as either a string or numeric value based on
