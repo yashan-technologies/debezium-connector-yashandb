@@ -235,16 +235,9 @@ public class YashanDBValueConverters extends JdbcValueConverters {
     protected Object convertJson(Column column, Field fieldDefn, Object data) {
         return convertValue(column, fieldDefn, data, "{}", (r) -> {
             // The SnapshotReader sees JSON values as UTF-8 encoded strings.
-            if (data instanceof YasonObject) {
+            if (data != null) {
                 r.deliver(data.toString());
-            }
-            else if (data instanceof String) {
-                r.deliver(data);
-            }
-            else if (data == null) {
-                r.deliver(data);
-            }
-            else {
+            } else {
                 // JSON Object is null, un support json type.
                 r.deliver(null);
             }
