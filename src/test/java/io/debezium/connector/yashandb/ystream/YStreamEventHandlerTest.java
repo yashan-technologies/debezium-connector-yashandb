@@ -8,7 +8,11 @@ package io.debezium.connector.yashandb.ystream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
+import java.sql.Types;
+
 import org.junit.jupiter.api.Test;
+
+import com.yashandb.jdbc.YasTypes;
 
 import io.debezium.connector.yashandb.YashanDBConnectorConfig;
 import io.debezium.connector.yashandb.YashanDBDatabaseSchema;
@@ -104,5 +108,41 @@ class YStreamEventHandlerTest {
             // Constructor may have different signature, just verify class exists
             assertThat(YStreamEventHandler.class).isNotNull();
         }
+    }
+
+    @Test
+    void shouldRecognizeSupportedDataTypes() {
+        int[] supportedTypes = {
+                Types.CHAR, Types.VARCHAR, Types.NCHAR, Types.NVARCHAR, Types.BOOLEAN,
+                Types.TINYINT, Types.SMALLINT, Types.INTEGER, Types.BIGINT,
+                YasTypes.UTINYINT, YasTypes.USMALLINT, YasTypes.UINTEGER, YasTypes.UBIGINT,
+                Types.REAL, Types.DOUBLE, Types.FLOAT, Types.NUMERIC, Types.DECIMAL,
+                Types.BINARY, Types.VARBINARY, Types.DATE, Types.TIME, Types.TIMESTAMP,
+                Types.TIMESTAMP_WITH_TIMEZONE, Types.BLOB, Types.CLOB,
+                YasTypes.YM_INTERVAL, YasTypes.DS_INTERVAL,
+                YasTypes.TIMESTAMP_TZ, YasTypes.TIMESTAMP_LTZ,
+                Types.BIT, YasTypes.JSON, Types.SQLXML
+        };
+
+        for (int supportedType : supportedTypes) {
+            assertThat(YStreamEventHandler.isSupportedDataType(supportedType)).isTrue();
+        }
+    }
+
+    @Test
+    void shouldRejectDataTypesOutsideWhitelist() {
+        int[] unsupportedTypes = { Types.ARRAY, Types.STRUCT, Types.NCLOB, Types.ROWID, Types.OTHER };
+
+        for (int unsupportedType : unsupportedTypes) {
+            assertThat(YStreamEventHandler.isSupportedDataType(unsupportedType)).isFalse();
+        }
+
+        assertThat(YStreamEventHandler.isSupportedDataType(Types.OTHER, "SDO_GEOMETRY")).isFalse();
+    }
+
+    @Test
+    void shouldRecognizeJdbcOtherIntervalTypes() {
+        assertThat(YStreamEventHandler.isSupportedDataType(Types.OTHER, "INTERVAL YEAR TO MONTH")).isTrue();
+        assertThat(YStreamEventHandler.isSupportedDataType(Types.OTHER, "INTERVAL DAY TO SECOND")).isTrue();
     }
 }

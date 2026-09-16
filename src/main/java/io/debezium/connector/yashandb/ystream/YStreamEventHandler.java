@@ -6,6 +6,7 @@
 package io.debezium.connector.yashandb.ystream;
 
 import java.sql.SQLException;
+import java.sql.Types;
 import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -267,9 +268,69 @@ class YStreamEventHandler {
             throw e;
         }
         catch (Exception e) {
+            List<com.sics.ystream.metadata.Column> unsupportedColumns = record.getTableMetadata() == null
+                    ? Collections.emptyList()
+                    : record.getTableMetadata().getColumns().stream()
+                            .filter(column -> !column.isDeleted())
+                            .filter(column -> !isSupportedDataType(column.getDataType(), column.getTypeName()))
+                            .collect(Collectors.toList());
+            if (!unsupportedColumns.isEmpty()) {
+                LOGGER.warn("Ignoring failed DML event for table {} because it contains unsupported data type columns: {}. Error: {}",
+                        tableId,
+                        unsupportedColumns.stream()
+                                .map(column -> column.getColumnName() + "(" + column.getTypeName() + ", dataType=" + column.getDataType() + ")")
+                                .collect(Collectors.joining(", ")),
+                        e.getMessage());
+                return;
+            }
             printDiffMetadata(record, tableId);
             throw e;
         }
+    }
+
+    static boolean isSupportedDataType(int dataType) {
+        return dataType == Types.CHAR
+                || dataType == Types.VARCHAR
+                || dataType == Types.NCHAR
+                || dataType == Types.NVARCHAR
+                || dataType == Types.BOOLEAN
+                || dataType == Types.TINYINT
+                || dataType == Types.SMALLINT
+                || dataType == Types.INTEGER
+                || dataType == Types.BIGINT
+                || dataType == YasTypes.UTINYINT
+                || dataType == YasTypes.USMALLINT
+                || dataType == YasTypes.UINTEGER
+                || dataType == YasTypes.UBIGINT
+                || dataType == Types.REAL
+                || dataType == Types.DOUBLE
+                || dataType == Types.FLOAT
+                || dataType == Types.NUMERIC
+                || dataType == Types.DECIMAL
+                || dataType == Types.BINARY
+                || dataType == Types.VARBINARY
+                || dataType == Types.DATE
+                || dataType == Types.TIME
+                || dataType == Types.TIMESTAMP
+                || dataType == Types.TIMESTAMP_WITH_TIMEZONE
+                || dataType == Types.BLOB
+                || dataType == Types.CLOB
+                || dataType == YasTypes.YM_INTERVAL
+                || dataType == YasTypes.DS_INTERVAL
+                || dataType == YasTypes.TIMESTAMP_TZ
+                || dataType == YasTypes.TIMESTAMP_LTZ
+                || dataType == Types.BIT
+                || dataType == YasTypes.JSON
+                || dataType == Types.SQLXML;
+    }
+
+    static boolean isSupportedDataType(int dataType, String typeName) {
+        if (isSupportedDataType(dataType)) {
+            return true;
+        }
+        return dataType == Types.OTHER
+                && ("INTERVAL YEAR TO MONTH".equalsIgnoreCase(typeName)
+                        || "INTERVAL DAY TO SECOND".equalsIgnoreCase(typeName));
     }
 
     private void printDiffMetadata(YStreamDataChangeRecord record, TableId tableId) {
