@@ -33,6 +33,7 @@ import io.debezium.pipeline.notification.NotificationService;
 import io.debezium.pipeline.source.SnapshottingTask;
 import io.debezium.pipeline.source.spi.SnapshotProgressListener;
 import io.debezium.pipeline.source.spi.StreamingChangeEventSource;
+import io.debezium.pipeline.spi.SnapshotResult;
 import io.debezium.relational.RelationalSnapshotChangeEventSource;
 import io.debezium.relational.Table;
 import io.debezium.relational.TableId;
@@ -51,8 +52,24 @@ public class YashanDbSnapshotChangeEventSource extends RelationalSnapshotChangeE
     private static final Logger LOGGER = LoggerFactory.getLogger(YashanDbSnapshotChangeEventSource.class);
 
     private final YashanDbConnectorConfig connectorConfig;
+    private final MainConnectionProvidingConnectionFactory<YashanDbConnection> connectionFactory;
     private final YashanDbConnection jdbcConnection;
     private final YashanDbDatabaseSchema databaseSchema;
+
+    @Override
+    public SnapshotResult<YashanDbOffsetContext> doExecute(ChangeEventSourceContext context, YashanDbOffsetContext previousOffset,
+                                                           SnapshotContext<YashanDbPartition, YashanDbOffsetContext> snapshotContext,
+                                                           SnapshottingTask snapshottingTask)
+            throws Exception {
+        try {
+            return super.doExecute(context, previousOffset, snapshotContext, snapshottingTask);
+        }
+        finally {
+            if (connectorConfig.getModeContext().isMySql()) {
+                unlockMySqlTables((YashanDbSnapshotContext) snapshotContext);
+            }
+        }
+    }
 
     /**
      * Creates a new snapshot change event source.
@@ -72,6 +89,7 @@ public class YashanDbSnapshotChangeEventSource extends RelationalSnapshotChangeE
                                              NotificationService<YashanDbPartition, YashanDbOffsetContext> notificationService, SnapshotterService snapshotterService) {
         super(connectorConfig, connectionFactory, schema, dispatcher, clock, snapshotProgressListener, notificationService, snapshotterService);
         this.connectorConfig = connectorConfig;
+        this.connectionFactory = connectionFactory;
         this.jdbcConnection = connectionFactory.mainConnection();
         this.databaseSchema = schema;
     }
@@ -95,6 +113,37 @@ public class YashanDbSnapshotChangeEventSource extends RelationalSnapshotChangeE
                                                RelationalSnapshotContext<YashanDbPartition, YashanDbOffsetContext> snapshotContext)
             throws SQLException, InterruptedException {
         if (connectorConfig.getSnapshotLockingMode().get().usesLocking()) {
+            if (connectorConfig.getModeContext().isMySql()) {
+                for (TableId tableId : snapshotContext.capturedTables) {
+                    if (!sourceContext.isRunning()) {
+                        throw new InterruptedException("Interrupted while locking table " + tableId);
+                    }
+                }
+                if (!snapshotContext.capturedTables.isEmpty()) {
+                    YashanDbSnapshotContext context = (YashanDbSnapshotContext) snapshotContext;
+                    context.mysqlLockConnection = connectionFactory.newConnection();
+                    try {
+                        try (Statement statement = context.mysqlLockConnection.connection().createStatement()) {
+                            Optional<String> lockingStatement = snapshotterService.getSnapshotLock().tableLockingStatement(null,
+                                    jdbcConnection.quotedTableIdString(snapshotContext.capturedTables.iterator().next()));
+                            if (lockingStatement.isPresent()) {
+                                LOGGER.debug("Locking tables {}", snapshotContext.capturedTables);
+                                statement.execute(lockingStatement.get());
+                            }
+                        }
+                    }
+                    catch (SQLException e) {
+                        try {
+                            unlockMySqlTables(context);
+                        }
+                        catch (SQLException unlockFailure) {
+                            e.addSuppressed(unlockFailure);
+                        }
+                        throw e;
+                    }
+                }
+                return;
+            }
             ((YashanDbSnapshotContext) snapshotContext).preSchemaSnapshotSavepoint = jdbcConnection.connection().setSavepoint("dbz_schema_snapshot");
 
             try (Statement statement = jdbcConnection.connection().createStatement()) {
@@ -103,7 +152,7 @@ public class YashanDbSnapshotChangeEventSource extends RelationalSnapshotChangeE
                         throw new InterruptedException("Interrupted while locking table " + tableId);
                     }
 
-                    Optional<String> lockingStatement = snapshotterService.getSnapshotLock().tableLockingStatement(null, quote(tableId));
+                    Optional<String> lockingStatement = snapshotterService.getSnapshotLock().tableLockingStatement(null, jdbcConnection.quotedTableIdString(tableId));
                     if (lockingStatement.isPresent()) {
                         LOGGER.debug("Locking table {}", tableId);
                         statement.execute(lockingStatement.get());
@@ -120,7 +169,22 @@ public class YashanDbSnapshotChangeEventSource extends RelationalSnapshotChangeE
     protected void releaseSchemaSnapshotLocks(RelationalSnapshotContext<YashanDbPartition, YashanDbOffsetContext> snapshotContext)
             throws SQLException {
         if (connectorConfig.getSnapshotLockingMode().get().usesLocking()) {
+            if (connectorConfig.getModeContext().isMySql()) {
+                unlockMySqlTables((YashanDbSnapshotContext) snapshotContext);
+                return;
+            }
             jdbcConnection.connection().rollback(((YashanDbSnapshotContext) snapshotContext).preSchemaSnapshotSavepoint);
+        }
+    }
+
+    private void unlockMySqlTables(YashanDbSnapshotContext context) throws SQLException {
+        YashanDbConnection lockConnection = context.mysqlLockConnection;
+        if (lockConnection != null) {
+            context.mysqlLockConnection = null;
+            try (YashanDbConnection connection = lockConnection;
+                    Statement statement = connection.connection().createStatement()) {
+                statement.execute("UNLOCK TABLES");
+            }
         }
     }
 
@@ -240,7 +304,7 @@ public class YashanDbSnapshotChangeEventSource extends RelationalSnapshotChangeE
     protected Optional<String> getSnapshotSelect(RelationalSnapshotContext<YashanDbPartition, YashanDbOffsetContext> snapshotContext,
                                                  TableId tableId, List<String> columns) {
 
-        return snapshotterService.getSnapshotQuery().snapshotQuery(quote(tableId), columns);
+        return snapshotterService.getSnapshotQuery().snapshotQuery(jdbcConnection.quotedTableIdString(tableId), columns);
     }
 
     @Override
@@ -252,16 +316,13 @@ public class YashanDbSnapshotChangeEventSource extends RelationalSnapshotChangeE
         return Strings.listOfRegex(tableId.schema() + "." + tableId.table(), Pattern.CASE_INSENSITIVE);
     }
 
-    private String quote(TableId tableId) {
-        return new TableId(null, tableId.schema(), tableId.table()).toDoubleQuotedString();
-    }
-
     /**
      * Mutable context which is populated in the course of snapshotting.
      */
     private static class YashanDbSnapshotContext extends RelationalSnapshotContext<YashanDbPartition, YashanDbOffsetContext> {
 
         private Savepoint preSchemaSnapshotSavepoint;
+        private YashanDbConnection mysqlLockConnection;
 
         YashanDbSnapshotContext(YashanDbPartition partition, String catalogName, boolean onDemand) {
             super(partition, catalogName, onDemand);

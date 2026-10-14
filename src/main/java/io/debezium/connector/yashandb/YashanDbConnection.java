@@ -12,6 +12,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -39,11 +40,10 @@ import io.debezium.spi.schema.DataCollectionId;
 public class YashanDbConnection extends JdbcConnection {
     private static final Logger LOGGER = LoggerFactory.getLogger(YashanDbConnection.class);
 
-    private static final String QUOTED_CHARACTER = "\"";
-
     private static final Field URL = Field.create("url", "Raw JDBC url");
 
     private static final int YASHANDB_UNSET_SCALE = -127;
+    private final YashanDbModeContext modeContext;
 
     /**
      * Creates a new YashanDB connection.
@@ -51,7 +51,11 @@ public class YashanDbConnection extends JdbcConnection {
      * @param config the JDBC configuration
      */
     public YashanDbConnection(JdbcConfiguration config) {
-        super(config, resolveConnectionFactory(config), QUOTED_CHARACTER, QUOTED_CHARACTER);
+        this(config, new YashanDbModeContext(false));
+    }
+
+    public YashanDbConnection(JdbcConfiguration config, YashanDbModeContext modeContext) {
+        this(config, resolveConnectionFactory(config), null, modeContext);
     }
 
     /**
@@ -61,7 +65,7 @@ public class YashanDbConnection extends JdbcConnection {
      * @param connectionFactory the connection factory
      */
     public YashanDbConnection(JdbcConfiguration config, ConnectionFactory connectionFactory) {
-        super(config, connectionFactory, QUOTED_CHARACTER, QUOTED_CHARACTER);
+        this(config, connectionFactory, null, new YashanDbModeContext(false));
     }
 
     /**
@@ -72,7 +76,22 @@ public class YashanDbConnection extends JdbcConnection {
      * @param initialOperations the initial operations to execute
      */
     protected YashanDbConnection(JdbcConfiguration config, ConnectionFactory connectionFactory, Operations initialOperations) {
-        super(config, connectionFactory, initialOperations, QUOTED_CHARACTER, QUOTED_CHARACTER);
+        this(config, connectionFactory, initialOperations, new YashanDbModeContext(false));
+    }
+
+    private YashanDbConnection(JdbcConfiguration config, ConnectionFactory connectionFactory, Operations initialOperations,
+                               YashanDbModeContext modeContext) {
+        super(config, connectionFactory, initialOperations, quoteCharacter(modeContext), quoteCharacter(modeContext));
+        this.modeContext = Objects.requireNonNull(modeContext, "modeContext");
+    }
+
+    private static String quoteCharacter(YashanDbModeContext modeContext) {
+        return Objects.requireNonNull(modeContext, "modeContext").dialect().quoteCharacter();
+    }
+
+    @Override
+    public String quotedTableIdString(TableId tableId) {
+        return modeContext.dialect().qualifiedTableName(tableId);
     }
 
     /**
@@ -87,7 +106,7 @@ public class YashanDbConnection extends JdbcConnection {
      */
     @Override
     public TableId createTableId(String databaseName, String schemaName, String tableName) {
-        return new TableId("", schemaName, tableName);
+        return modeContext.dialect().tableId("", schemaName, tableName);
     }
 
     /**
@@ -146,19 +165,19 @@ public class YashanDbConnection extends JdbcConnection {
      * @throws SQLException if the query fails
      */
     public String getTableMetadataDdl(TableId tableId) throws SQLException {
-        return prepareQueryAndMap(
-                "SELECT dbms_metadata.get_ddl('TABLE',?,?) FROM DUAL",
-                ps -> {
-                    ps.setString(1, tableId.table());
-                    ps.setString(2, tableId.schema());
-                },
-                rs -> {
-                    if (!rs.next()) {
-                        throw new DebeziumException("Could not get DDL metadata for table: " + tableId);
-                    }
+        String sql = modeContext.dialect().tableDdlQuery(tableId);
+        if (modeContext.dialect().tableDdlUsesParameters()) {
+            return prepareQueryAndMap(sql, ps -> modeContext.dialect().bindTableDdlQuery(ps, tableId),
+                    rs -> readTableDdl(rs, tableId));
+        }
+        return queryAndMap(sql, rs -> readTableDdl(rs, tableId));
+    }
 
-                    return rs.getString(1);
-                });
+    private String readTableDdl(ResultSet result, TableId tableId) throws SQLException {
+        if (!result.next()) {
+            throw new DebeziumException("Could not get DDL metadata for table: " + tableId);
+        }
+        return result.getString(modeContext.dialect().tableDdlColumn());
     }
 
     @Override
@@ -175,33 +194,7 @@ public class YashanDbConnection extends JdbcConnection {
                                            Optional<String> condition,
                                            Optional<String> additionalCondition,
                                            String orderBy) {
-        final TableId table = new TableId(null, tableId.schema(), tableId.table());
-        final StringBuilder sql = new StringBuilder("SELECT ");
-        sql
-                .append(projection)
-                .append(" FROM ");
-        sql.append(quotedTableIdString(table));
-        if (condition.isPresent()) {
-            sql
-                    .append(" WHERE ")
-                    .append(condition.get());
-            if (additionalCondition.isPresent()) {
-                sql.append(" AND ");
-                sql.append(additionalCondition.get());
-            }
-        }
-        else if (additionalCondition.isPresent()) {
-            sql.append(" WHERE ");
-            sql.append(additionalCondition.get());
-        }
-        sql
-                .insert(0, " SELECT * FROM (")
-                .append(" ORDER BY ")
-                .append(orderBy)
-                .append(")")
-                .append(" WHERE ROWNUM <=")
-                .append(limit);
-        return sql.toString();
+        return modeContext.dialect().limitedSelect(tableId, limit, projection, condition, additionalCondition, orderBy);
     }
 
     protected boolean isArchiveLogMode() {
@@ -223,12 +216,12 @@ public class YashanDbConnection extends JdbcConnection {
      * @throws SQLException if the query fails
      */
     public Set<TableId> getAllTableIds(String catalogName) throws SQLException {
-        final String query = "select owner, table_name from all_tables ";
+        final String query = modeContext.dialect().tableIdsQuery();
 
         Set<TableId> tableIds = new HashSet<>();
         query(query, (rs) -> {
             while (rs.next()) {
-                tableIds.add(new TableId("", rs.getString(1), rs.getString(2)));
+                tableIds.add(modeContext.dialect().tableId(null, rs.getString(1), rs.getString(2)));
             }
             LOGGER.trace("TableIds are: {}", tableIds);
         });

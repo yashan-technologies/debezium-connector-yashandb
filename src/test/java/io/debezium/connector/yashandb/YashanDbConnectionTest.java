@@ -6,9 +6,7 @@
 package io.debezium.connector.yashandb;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.CALLS_REAL_METHODS;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.withSettings;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.Optional;
 
@@ -58,8 +56,7 @@ class YashanDbConnectionTest {
 
     @Test
     void shouldBuildSelectWithRowLimitsNoCondition() {
-        YashanDbConnection connection = mock(YashanDbConnection.class,
-                withSettings().defaultAnswer(CALLS_REAL_METHODS));
+        YashanDbConnection connection = nativeConnection();
 
         TableId tableId = new TableId(null, "SCHEMA", "TABLE_NAME");
         String sql = connection.buildSelectWithRowLimits(
@@ -80,9 +77,29 @@ class YashanDbConnectionTest {
     }
 
     @Test
+    void shouldUseSelectedDialectForLimitedSelect() {
+        TableId nativeTable = new TableId("", "APP", "ORDERS");
+        String nativeSql = nativeConnection().buildSelectWithRowLimits(nativeTable, 10, "ID",
+                Optional.of("ID > 0"), Optional.empty(), "ID");
+        assertThat(nativeSql).isEqualTo(" SELECT * FROM (SELECT ID FROM \"APP\".\"ORDERS\" WHERE ID > 0 ORDER BY ID) WHERE ROWNUM <=10");
+
+        JdbcConfiguration config = JdbcConfiguration.create()
+                .withHostname("localhost")
+                .withPort(1688)
+                .withDatabase("yashandb")
+                .build();
+        YashanDbConnection mysqlConnection = new YashanDbConnection(config, new YashanDbModeContext(true));
+        TableId mysqlTable = new TableId("inventory", null, "orders");
+        String mysqlSql = mysqlConnection.buildSelectWithRowLimits(mysqlTable, 10, "ID",
+                Optional.of("ID > 0"), Optional.empty(), "ID");
+        String quote = String.valueOf((char) 96);
+        assertThat(mysqlSql).isEqualTo("SELECT ID FROM " + quote + "inventory" + quote + "." + quote + "orders" + quote
+                + " WHERE ID > 0 ORDER BY ID LIMIT 10");
+    }
+
+    @Test
     void shouldBuildSelectWithRowLimitsWithCondition() {
-        YashanDbConnection connection = mock(YashanDbConnection.class,
-                withSettings().defaultAnswer(CALLS_REAL_METHODS));
+        YashanDbConnection connection = nativeConnection();
 
         TableId tableId = new TableId(null, "SCHEMA", "TABLE_NAME");
         String sql = connection.buildSelectWithRowLimits(
@@ -101,8 +118,7 @@ class YashanDbConnectionTest {
 
     @Test
     void shouldBuildSelectWithRowLimitsWithAdditionalConditionOnly() {
-        YashanDbConnection connection = mock(YashanDbConnection.class,
-                withSettings().defaultAnswer(CALLS_REAL_METHODS));
+        YashanDbConnection connection = nativeConnection();
 
         TableId tableId = new TableId(null, "SCHEMA", "TABLE_NAME");
         String sql = connection.buildSelectWithRowLimits(
@@ -121,8 +137,7 @@ class YashanDbConnectionTest {
 
     @Test
     void shouldBuildSelectWithRowLimitsWithBothConditions() {
-        YashanDbConnection connection = mock(YashanDbConnection.class,
-                withSettings().defaultAnswer(CALLS_REAL_METHODS));
+        YashanDbConnection connection = nativeConnection();
 
         TableId tableId = new TableId(null, "SCHEMA", "TABLE_NAME");
         String sql = connection.buildSelectWithRowLimits(
@@ -138,8 +153,7 @@ class YashanDbConnectionTest {
 
     @Test
     void shouldBuildSelectWithRowLimitsWithLargeLimit() {
-        YashanDbConnection connection = mock(YashanDbConnection.class,
-                withSettings().defaultAnswer(CALLS_REAL_METHODS));
+        YashanDbConnection connection = nativeConnection();
 
         TableId tableId = new TableId(null, "OWNER", "BIG_TABLE");
         String sql = connection.buildSelectWithRowLimits(
@@ -152,6 +166,26 @@ class YashanDbConnectionTest {
 
         assertThat(sql).contains("ROWNUM <=");
         assertThat(sql).contains("1000000");
+    }
+
+    @Test
+    void shouldRejectNullModeContext() {
+        JdbcConfiguration config = JdbcConfiguration.create()
+                .withHostname("localhost")
+                .withPort(1688)
+                .withDatabase("yashandb")
+                .build();
+        assertThatThrownBy(() -> new YashanDbConnection(config, (YashanDbModeContext) null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("modeContext");
+    }
+
+    private static YashanDbConnection nativeConnection() {
+        return new YashanDbConnection(JdbcConfiguration.create()
+                .withHostname("localhost")
+                .withPort(1688)
+                .withDatabase("yashandb")
+                .build());
     }
 
     // -----------------------------------------------------------------------

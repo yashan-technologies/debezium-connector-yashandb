@@ -144,7 +144,7 @@ public abstract class BaseChangeRecordEmitter<T> extends RelationalChangeRecordE
                     table.id(), newKey, reselectColumns.stream().map(Column::name).collect(Collectors.toList()));
 
             final JdbcConfiguration jdbcConfig = connectorConfig.getJdbcConfig();
-            try (YashanDbConnection connection = new YashanDbConnection(jdbcConfig)) {
+            try (YashanDbConnection connection = new YashanDbConnection(jdbcConfig, connectorConfig.getModeContext())) {
                 final String query = getReselectQuery(reselectColumns, table, connection);
                 connection.prepareQuery(query,
                         ps -> prepareReselectQueryStatement(ps, table, newKey),
@@ -176,7 +176,7 @@ public abstract class BaseChangeRecordEmitter<T> extends RelationalChangeRecordE
                         table.id(), oldKey, newKey, reselectColumns.stream().map(Column::name).collect(Collectors.toList()));
 
                 final JdbcConfiguration jdbcConfig = connectorConfig.getJdbcConfig();
-                try (YashanDbConnection connection = new YashanDbConnection(jdbcConfig)) {
+                try (YashanDbConnection connection = new YashanDbConnection(jdbcConfig, connectorConfig.getModeContext())) {
                     final String query = getReselectQuery(reselectColumns, table, connection);
                     connection.prepareQuery(query,
                             ps -> prepareReselectQueryStatement(ps, table, newKey),

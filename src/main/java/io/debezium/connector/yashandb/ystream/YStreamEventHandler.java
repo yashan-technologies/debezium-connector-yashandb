@@ -394,7 +394,7 @@ class YStreamEventHandler {
         LOGGER.info("Getting database metadata for table '{}'", tableId);
         // A separate connection must be used for this out-of-bands query while processing the Xstream callback.
         // This should have negligible overhead as this should happen rarely.
-        try (YashanDbConnection connection = new YashanDbConnection(connectorConfig.getJdbcConfig())) {
+        try (YashanDbConnection connection = new YashanDbConnection(connectorConfig.getJdbcConfig(), connectorConfig.getModeContext())) {
             connection.setAutoCommit(false);
             String tableMetadataDdl = connection.getTableMetadataDdl(tableId);
             LOGGER.debug("Obtain table {}.{} ddl: {}", tableId.schema(), tableId.table(), tableMetadataDdl);

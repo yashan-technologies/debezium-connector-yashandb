@@ -13,8 +13,8 @@ import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import io.debezium.connector.yashandb.dialect.YashanDbDialect;
 import io.debezium.relational.RelationalSnapshotChangeEventSource.RelationalSnapshotContext;
-import io.debezium.relational.TableId;
 
 /**
  * Abstract implementation of the {@link StreamingAdapter} for which all streaming adapters are derived.
@@ -74,21 +74,10 @@ public abstract class AbstractStreamingAdapter implements StreamingAdapter {
             return Optional.empty();
         }
 
-        StringBuilder lastDdlScnQuery = new StringBuilder("SELECT TIMESTAMP_TO_SCN(MAX(to_timestamp(last_ddl_time)))")
-                .append(" FROM all_objects")
-                .append(" WHERE");
-
-        for (TableId table : ctx.capturedTables) {
-            lastDdlScnQuery.append(" (owner = ? AND object_name = ?) OR");
-        }
-
-        String query = lastDdlScnQuery.substring(0, lastDdlScnQuery.length() - 3);
+        YashanDbDialect dialect = connectorConfig.getModeContext().dialect();
+        String query = dialect.latestTableDdlScnQuery(ctx.capturedTables);
         try (PreparedStatement stmt = connection.connection().prepareStatement(query)) {
-            int paramIndex = 1;
-            for (TableId table : ctx.capturedTables) {
-                stmt.setString(paramIndex++, table.schema());
-                stmt.setString(paramIndex++, table.table());
-            }
+            dialect.bindLatestTableDdlScnQuery(stmt, ctx.capturedTables);
             ResultSet rs = stmt.executeQuery();
 
             if (!rs.next()) {
