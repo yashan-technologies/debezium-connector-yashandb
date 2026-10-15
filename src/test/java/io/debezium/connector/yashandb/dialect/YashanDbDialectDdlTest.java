@@ -75,6 +75,7 @@ class YashanDbDialectDdlTest {
         List<TableId> tables = List.of(dialect.tableId("", "inventory", "orders"), dialect.tableId("", "other", "items"));
         PreparedStatement statement = mock(PreparedStatement.class);
 
+        assertThat(tables).containsExactly(new TableId("inventory", null, "orders"), new TableId("other", null, "items"));
         assertThat(dialect.latestTableDdlScnQuery(tables)).isEqualTo("SELECT TIMESTAMP_TO_SCN(MAX(to_timestamp(update_time)))"
                 + " FROM INFORMATION_SCHEMA.tables WHERE (table_schema = ? AND table_name = ?) OR (table_schema = ? AND table_name = ?)");
         dialect.bindLatestTableDdlScnQuery(statement, tables);

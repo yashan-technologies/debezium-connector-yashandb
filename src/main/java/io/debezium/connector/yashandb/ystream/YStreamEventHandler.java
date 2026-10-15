@@ -129,24 +129,24 @@ class YStreamEventHandler {
             switch (record.getYstreamLcrInterface().getLcrType()) {
                 case YSTREAM_DDL:
                     YstreamDdl ddl = (YstreamDdl) record.getYstreamLcrInterface();
-                    offsetContext.tableEvent(new TableId("", ddl.getTableId().getSchema(), ddl.getTableId().getTable()),
+                    offsetContext.tableEvent(toTableId(ddl.getTableId().getSchema(), ddl.getTableId().getTable()),
                             ddl.getCurrentScn().getTimestamp().toInstant());
                     break;
                 case YSTREAM_DML:
                     YstreamDml dml = (YstreamDml) record.getYstreamLcrInterface();
-                    offsetContext.tableEvent(new TableId("", dml.getTableId().getSchema(), dml.getTableId().getTable()),
+                    offsetContext.tableEvent(toTableId(dml.getTableId().getSchema(), dml.getTableId().getTable()),
                             dml.getCurrentScn().getTimestamp().toInstant());
                     break;
                 case YSTREAM_XACT:
                     break;
                 case YSTREAM_CHUNK:
                     YstreamChunk chunk = (YstreamChunk) record.getYstreamLcrInterface();
-                    offsetContext.tableEvent(new TableId("", chunk.getTableId().getSchema(), chunk.getTableId().getTable()),
+                    offsetContext.tableEvent(toTableId(chunk.getTableId().getSchema(), chunk.getTableId().getTable()),
                             chunk.getCurrentScn().getTimestamp().toInstant());
                     break;
                 case YSTREAM_METADATA:
                     YstreamMetadata metadata = (YstreamMetadata) record.getYstreamLcrInterface();
-                    offsetContext.tableEvent(new TableId("", metadata.getTableId().getSchema(), metadata.getTableId().getTable()),
+                    offsetContext.tableEvent(toTableId(metadata.getTableId().getSchema(), metadata.getTableId().getTable()),
                             null);
             }
             YstreamLcrInterface ystreamLcrInterface = record.getYstreamLcrInterface();
@@ -289,10 +289,11 @@ class YStreamEventHandler {
                 .map(YstreamColumn::getColumn)
                 .map(com.sics.ystream.metadata.Column::getColumnName)
                 .collect(Collectors.joining(","));
+        String namespace = connectorConfig.getModeContext().isMySql() ? tableId.catalog() : tableId.schema();
         LOGGER.error("Dispatch data change event error,record schema: {}," +
                 "table: {}," +
                 "columns in the schema: {}," +
-                "columns on the table: {}", tableId.schema(), tableId.table(), columnsInSchema, columnsOnTable);
+                "columns on the table: {}", namespace, tableId.table(), columnsInSchema, columnsOnTable);
     }
 
     /**
@@ -347,8 +348,8 @@ class YStreamEventHandler {
                         partition,
                         offsetContext,
                         tableId,
-                        "",
-                        ddl.getTableId().getSchema(),
+                        tableId.catalog(),
+                        tableId.schema(),
                         ddl.getDdlText(),
                         schema,
                         ddl.getCurrentScn().getTimestamp().toInstant(),
@@ -382,12 +383,16 @@ class YStreamEventHandler {
 
     private TableId getTableId(YStreamDataChangeRecord dmlRecord) {
         return dmlRecord.isTruncateTable()
-                ? new TableId("", dmlRecord.getyStreamTruncate().getTableId().getSchema(), dmlRecord.getyStreamTruncate().getTableId().getTable())
-                : new TableId("", dmlRecord.getYstreamDml().getTableId().getSchema(), dmlRecord.getYstreamDml().getTableId().getTable());
+                ? toTableId(dmlRecord.getyStreamTruncate().getTableId().getSchema(), dmlRecord.getyStreamTruncate().getTableId().getTable())
+                : toTableId(dmlRecord.getYstreamDml().getTableId().getSchema(), dmlRecord.getYstreamDml().getTableId().getTable());
     }
 
     private TableId getTableId(YstreamDdl ddl) {
-        return new TableId("", ddl.getTableId().getSchema(), ddl.getTableId().getTable());
+        return toTableId(ddl.getTableId().getSchema(), ddl.getTableId().getTable());
+    }
+
+    private TableId toTableId(String schemaName, String tableName) {
+        return connectorConfig.getModeContext().dialect().tableId(null, schemaName, tableName);
     }
 
     private String getTableMetadataDdl(TableId tableId) {
@@ -397,7 +402,8 @@ class YStreamEventHandler {
         try (YashanDbConnection connection = new YashanDbConnection(connectorConfig.getJdbcConfig(), connectorConfig.getModeContext())) {
             connection.setAutoCommit(false);
             String tableMetadataDdl = connection.getTableMetadataDdl(tableId);
-            LOGGER.debug("Obtain table {}.{} ddl: {}", tableId.schema(), tableId.table(), tableMetadataDdl);
+            String namespace = connectorConfig.getModeContext().isMySql() ? tableId.catalog() : tableId.schema();
+            LOGGER.debug("Obtain table {}.{} ddl: {}", namespace, tableId.table(), tableMetadataDdl);
             return tableMetadataDdl;
         }
         catch (SQLException e) {

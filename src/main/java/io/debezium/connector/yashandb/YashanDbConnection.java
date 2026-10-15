@@ -5,13 +5,17 @@
  */
 package io.debezium.connector.yashandb;
 
+import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -27,11 +31,15 @@ import io.debezium.config.Field;
 import io.debezium.jdbc.JdbcConfiguration;
 import io.debezium.jdbc.JdbcConnection;
 import io.debezium.pipeline.source.snapshot.incremental.ChunkQueryBuilder;
+import io.debezium.relational.Attribute;
 import io.debezium.relational.Column;
 import io.debezium.relational.ColumnEditor;
 import io.debezium.relational.RelationalDatabaseConnectorConfig;
 import io.debezium.relational.Table;
 import io.debezium.relational.TableId;
+import io.debezium.relational.Tables;
+import io.debezium.relational.Tables.ColumnNameFilter;
+import io.debezium.relational.Tables.TableFilter;
 import io.debezium.spi.schema.DataCollectionId;
 
 /**
@@ -95,18 +103,35 @@ public class YashanDbConnection extends JdbcConnection {
     }
 
     /**
-     * Creates a {@link TableId} with an empty catalog.
-     * YashanDB does not use catalog to identify tables — only schema and table name matter.
+     * Creates a {@link TableId} using the selected database mode's identifier fields.
      * This ensures consistency between schema registration and lookup.
      *
-     * @param databaseName the database name (ignored for YashanDB)
+     * @param databaseName the database name
      * @param schemaName the schema name
      * @param tableName the table name
-     * @return a TableId with empty catalog
+     * @return a table identifier in the selected database mode
      */
     @Override
     public TableId createTableId(String databaseName, String schemaName, String tableName) {
-        return modeContext.dialect().tableId("", schemaName, tableName);
+        return modeContext.dialect().tableId(databaseName, schemaName, tableName);
+    }
+
+    @Override
+    public List<String> readPrimaryKeyNames(DatabaseMetaData metadata, TableId id) throws SQLException {
+        return super.readPrimaryKeyNames(metadata, metadataTableId(id));
+    }
+
+    @Override
+    public List<String> readTableUniqueIndices(DatabaseMetaData metadata, TableId id) throws SQLException {
+        return super.readTableUniqueIndices(metadata, metadataTableId(id));
+    }
+
+    private TableId metadataTableId(TableId id) {
+        return modeContext.isMySql() ? new TableId(id.catalog(), null, id.table()) : id;
+    }
+
+    public boolean isMySqlMode() {
+        return modeContext.isMySql();
     }
 
     /**

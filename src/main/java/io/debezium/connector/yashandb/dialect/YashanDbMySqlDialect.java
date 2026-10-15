@@ -28,7 +28,8 @@ public final class YashanDbMySqlDialect implements YashanDbDialect {
 
     @Override
     public TableId tableId(String database, String schema, String table) {
-        return new TableId("", schema, table);
+        String catalog = database == null || database.isEmpty() ? schema : database;
+        return new TableId(catalog, null, table);
     }
 
     @Override
@@ -58,7 +59,7 @@ public final class YashanDbMySqlDialect implements YashanDbDialect {
     public void bindLatestTableDdlScnQuery(PreparedStatement statement, Collection<TableId> tables) throws SQLException {
         int parameterIndex = 1;
         for (TableId table : tables) {
-            statement.setString(parameterIndex++, table.schema());
+            statement.setString(parameterIndex++, table.catalog());
             statement.setString(parameterIndex++, table.table());
         }
     }

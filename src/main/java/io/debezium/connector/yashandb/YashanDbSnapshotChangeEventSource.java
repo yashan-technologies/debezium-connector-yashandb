@@ -217,17 +217,19 @@ public class YashanDbSnapshotChangeEventSource extends RelationalSnapshotChangeE
             LOGGER.info("All eligible tables schema should be captured, capturing: {}", capturedSchemaTables);
         }
 
-        Set<String> schemas = capturedSchemaTables.stream().map(TableId::schema).collect(Collectors.toSet());
+        Set<String> namespaces = capturedSchemaTables.stream()
+                .map(tableId -> connectorConfig.getModeContext().isMySql() ? tableId.catalog() : tableId.schema())
+                .collect(Collectors.toSet());
 
         final Tables.TableFilter tableFilter = getTableFilter(snapshottingTask, snapshotContext);
-        for (String schema : schemas) {
+        for (String namespace : namespaces) {
             if (!sourceContext.isRunning()) {
-                throw new InterruptedException("Interrupted while reading structure of schema " + schema);
+                throw new InterruptedException("Interrupted while reading table structure for " + namespace);
             }
             jdbcConnection.readSchema(
                     snapshotContext.tables,
                     null,
-                    schema,
+                    namespace,
                     tableFilter,
                     null,
                     false);
@@ -270,7 +272,7 @@ public class YashanDbSnapshotChangeEventSource extends RelationalSnapshotChangeE
         return SchemaChangeEvent.ofCreate(
                 snapshotContext.partition,
                 snapshotContext.offset,
-                snapshotContext.catalogName,
+                connectorConfig.getModeContext().isMySql() ? table.id().catalog() : snapshotContext.catalogName,
                 table.id().schema(),
                 jdbcConnection.getTableMetadataDdl(table.id()),
                 table,
@@ -309,11 +311,13 @@ public class YashanDbSnapshotChangeEventSource extends RelationalSnapshotChangeE
 
     @Override
     protected List<Pattern> getSignalDataCollectionPattern(String signalingDataCollection) {
-        // YashanDB expects this value to be supplied using "<database>.<schema>.<table>"; however the
-        // TableIdMapper used by the connector uses only "<schema>.<table>". This primarily targets
-        // a fix for this specific use case as a much larger refactor is likely necessary long term.
+        // YashanDB signal collection names include a database prefix, while the connector matches the
+        // final namespace and table components for the selected database mode.
         final TableId tableId = TableId.parse(signalingDataCollection);
-        return Strings.listOfRegex(tableId.schema() + "." + tableId.table(), Pattern.CASE_INSENSITIVE);
+        String namespace = connectorConfig.getModeContext().isMySql()
+                ? (tableId.catalog() == null ? tableId.schema() : tableId.catalog())
+                : tableId.schema();
+        return Strings.listOfRegex(namespace + "." + tableId.table(), Pattern.CASE_INSENSITIVE);
     }
 
     /**
