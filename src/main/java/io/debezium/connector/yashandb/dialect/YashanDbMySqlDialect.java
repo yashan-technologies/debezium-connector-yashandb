@@ -9,6 +9,7 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.Collection;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 import io.debezium.relational.TableId;
 
@@ -47,11 +48,17 @@ public final class YashanDbMySqlDialect implements YashanDbDialect {
     }
 
     @Override
+    public String latestTableDdlScnQuery(Collection<TableId> tables) {
+        return "SELECT TIMESTAMP_TO_SCN(MAX(to_timestamp(update_time))) FROM INFORMATION_SCHEMA.tables WHERE "
+                + tables.stream().map(table -> "(table_schema = ? AND table_name = ?)")
+                        .collect(Collectors.joining(" OR "));
+    }
+
+    @Override
     public void bindLatestTableDdlScnQuery(PreparedStatement statement, Collection<TableId> tables) throws SQLException {
         int parameterIndex = 1;
         for (TableId table : tables) {
-            String database = table.catalog() != null && !table.catalog().isEmpty() ? table.catalog() : table.schema();
-            statement.setString(parameterIndex++, database);
+            statement.setString(parameterIndex++, table.schema());
             statement.setString(parameterIndex++, table.table());
         }
     }

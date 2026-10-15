@@ -70,13 +70,13 @@ class YashanDbDialectDdlTest {
     }
 
     @Test
-    void mysqlLatestTableDdlScnUsesCatalogWithSchemaFallback() throws SQLException {
+    void mysqlLatestTableDdlScnUsesInformationSchemaUpdateTime() throws SQLException {
         YashanDbDialect dialect = new YashanDbMySqlDialect();
-        List<TableId> tables = List.of(new TableId("inventory", null, "orders"), new TableId("", "other", "items"));
+        List<TableId> tables = List.of(dialect.tableId("", "inventory", "orders"), dialect.tableId("", "other", "items"));
         PreparedStatement statement = mock(PreparedStatement.class);
 
-        assertThat(dialect.latestTableDdlScnQuery(tables)).isEqualTo("SELECT TIMESTAMP_TO_SCN(MAX(to_timestamp(last_ddl_time)))"
-                + " FROM all_objects WHERE (owner = ? AND object_name = ?) OR (owner = ? AND object_name = ?)");
+        assertThat(dialect.latestTableDdlScnQuery(tables)).isEqualTo("SELECT TIMESTAMP_TO_SCN(MAX(to_timestamp(update_time)))"
+                + " FROM INFORMATION_SCHEMA.tables WHERE (table_schema = ? AND table_name = ?) OR (table_schema = ? AND table_name = ?)");
         dialect.bindLatestTableDdlScnQuery(statement, tables);
         verify(statement).setString(1, "inventory");
         verify(statement).setString(2, "orders");
