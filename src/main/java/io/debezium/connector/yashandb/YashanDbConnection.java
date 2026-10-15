@@ -117,6 +117,70 @@ public class YashanDbConnection extends JdbcConnection {
     }
 
     @Override
+    public void readSchema(Tables tables, String catalogName, String schemaName,
+                           TableFilter tableFilter, ColumnNameFilter columnFilter, boolean removeTablesNotFoundInJdbc)
+            throws SQLException {
+        Set<TableId> tableIdsBefore = new HashSet<>(tables.tableIds());
+        DatabaseMetaData metadata = connection().getMetaData();
+        Set<TableId> tableIds = new HashSet<>();
+        Map<TableId, List<Attribute>> attributesByTable = new HashMap<>();
+        String schemaNamePattern = createPatternFromName(schemaName, metadata.getSearchStringEscape());
+        String metadataCatalog = modeContext.isMySql() && catalogName == null ? schemaName : catalogName;
+        String metadataSchemaPattern = modeContext.isMySql() ? null : schemaNamePattern;
+
+        try (ResultSet rs = metadata.getTables(metadataCatalog, metadataSchemaPattern, null, supportedTableTypes())) {
+            while (rs.next()) {
+                String metaCatalogName = resolveCatalogName(rs.getString(1));
+                String metaSchemaName = rs.getString(2);
+                String metaTableName = rs.getString(3);
+                String tableType = rs.getString(4);
+                if (isTableType(tableType)) {
+                    if (modeContext.isMySql() && (metaCatalogName == null || metaCatalogName.isEmpty())) {
+                        metaCatalogName = metadataCatalog;
+                    }
+                    TableId tableId = createTableId(metaCatalogName, metaSchemaName, metaTableName);
+                    if (tableFilter == null || tableFilter.isIncluded(tableId)) {
+                        tableIds.add(tableId);
+                        attributesByTable.putAll(getAttributeDetails(tableId, tableType));
+                    }
+                }
+            }
+        }
+        LOGGER.debug("{} table(s) will be scanned", tableIds.size());
+
+        Map<TableId, List<Column>> columnsByTable = new HashMap<>();
+        for (TableId tableId : tableIds) {
+            LOGGER.debug("Retrieving columns of table {}", tableId);
+            String columnCatalog = modeContext.isMySql() ? tableId.catalog() : catalogName;
+            String columnSchema = modeContext.isMySql() ? null : tableId.schema();
+            Map<TableId, List<Column>> columns = getColumnsDetails(columnCatalog, columnSchema, tableId.table(),
+                    tableFilter, columnFilter, metadata, Collections.emptySet());
+            columnsByTable.putAll(columns);
+        }
+
+        if (columnsByTable.isEmpty()) {
+            for (TableId emptyTableId : tableIds) {
+                LOGGER.warn("Table {} has no column or all columns were excluded due to include/exclude lists.", emptyTableId);
+                columnsByTable.put(emptyTableId, new ArrayList<>());
+            }
+        }
+
+        for (Map.Entry<TableId, List<Column>> entry : columnsByTable.entrySet()) {
+            TableId tableId = entry.getKey();
+            List<String> pkColumnNames = readPrimaryKeyOrUniqueIndexNames(metadata, tableId);
+            List<Column> columns = entry.getValue();
+            Collections.sort(columns);
+            List<Attribute> attributes = attributesByTable.getOrDefault(tableId, Collections.emptyList());
+            tables.overwriteTable(tableId, columns, pkColumnNames, null, attributes);
+        }
+
+        if (removeTablesNotFoundInJdbc) {
+            tableIdsBefore.removeAll(columnsByTable.keySet());
+            tableIdsBefore.forEach(tables::removeTable);
+        }
+    }
+
+    @Override
     public List<String> readPrimaryKeyNames(DatabaseMetaData metadata, TableId id) throws SQLException {
         return super.readPrimaryKeyNames(metadata, metadataTableId(id));
     }
