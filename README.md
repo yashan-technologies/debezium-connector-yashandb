@@ -99,6 +99,18 @@ Then restart Kafka Connect to load the new connector.
 | `decimal.handling.mode` | DECIMAL column representation: `precise`, `double`, `string` | `precise` |
 | `legacy.decimal.handling.strategy` | Legacy decimal handling strategy | - |
 
+#### YStream MySQL mode
+
+The connector uses native YashanDB syntax by default. To connect to a MySQL-compatible YashanDB database, set `ystream.additional.properties` to `mysql.mode=true` (or include it among the comma-separated YStream options):
+
+```json
+{
+  "ystream.additional.properties": "mysql.mode=true"
+}
+```
+
+This setting selects the YStream client mode, the MySQL dialect for connector-generated SQL and table identifiers, and the JDBC `compatVector=mysql` connection property. The connector does not inspect `COMPAT_VECTOR` to select a mode. Use a separate topic prefix, offsets, and schema history when changing the mode of an existing connector.
+
 ### Example Configuration
 
 ```json

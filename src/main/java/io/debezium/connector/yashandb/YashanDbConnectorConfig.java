@@ -343,7 +343,7 @@ public class YashanDbConnectorConfig extends HistorizedRelationalDatabaseConnect
      * @param config the configuration properties
      */
     public YashanDbConnectorConfig(Configuration config) {
-        this(config, new YashanDbModeContext(false));
+        this(config, new YashanDbModeContext(YStreamConfigBuilder.mysqlMode(config.getList(YSTREAM_ADDITIONAL_PROPERTIES))));
     }
 
     public YashanDbConnectorConfig(Configuration config, YashanDbModeContext modeContext) {

@@ -8,6 +8,7 @@ package io.debezium.connector.yashandb;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Types;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -15,6 +16,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -49,6 +51,18 @@ public class YashanDbConnection extends JdbcConnection {
     private static final Logger LOGGER = LoggerFactory.getLogger(YashanDbConnection.class);
 
     private static final Field URL = Field.create("url", "Raw JDBC url");
+    private static final String MYSQL_TABLES_QUERY = "SELECT table_schema, table_name FROM information_schema.tables "
+            + "WHERE table_type = 'BASE TABLE'";
+    private static final String MYSQL_TABLES_BY_SCHEMA_QUERY = MYSQL_TABLES_QUERY + " AND table_schema = ?";
+    private static final String MYSQL_COLUMNS_QUERY = "SELECT table_schema, table_name, column_name, data_type, "
+            + "character_maximum_length, numeric_precision, numeric_scale, is_nullable, column_default, "
+            + "ordinal_position, extra FROM information_schema.columns "
+            + "WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position";
+    private static final String MYSQL_PRIMARY_KEY_QUERY = "SELECT column_name FROM information_schema.key_column_usage "
+            + "WHERE table_schema = ? AND table_name = ? AND constraint_name = 'PRIMARY' ORDER BY ordinal_position";
+    private static final String MYSQL_UNIQUE_INDEX_QUERY = "SELECT index_name, column_name, seq_in_index "
+            + "FROM information_schema.statistics WHERE table_schema = ? AND table_name = ? "
+            + "AND non_unique = 0 AND index_name <> 'PRIMARY' ORDER BY index_name, seq_in_index";
 
     private static final int YASHANDB_UNSET_SCALE = -127;
     private final YashanDbModeContext modeContext;
@@ -89,8 +103,15 @@ public class YashanDbConnection extends JdbcConnection {
 
     private YashanDbConnection(JdbcConfiguration config, ConnectionFactory connectionFactory, Operations initialOperations,
                                YashanDbModeContext modeContext) {
-        super(config, connectionFactory, initialOperations, quoteCharacter(modeContext), quoteCharacter(modeContext));
+        super(connectionConfiguration(config, modeContext), connectionFactory, initialOperations, quoteCharacter(modeContext), quoteCharacter(modeContext));
         this.modeContext = Objects.requireNonNull(modeContext, "modeContext");
+    }
+
+    private static JdbcConfiguration connectionConfiguration(JdbcConfiguration config, YashanDbModeContext modeContext) {
+        if (Objects.requireNonNull(modeContext, "modeContext").isMySql()) {
+            return JdbcConfiguration.copy(config).with("compatVector", "mysql").build();
+        }
+        return config;
     }
 
     private static String quoteCharacter(YashanDbModeContext modeContext) {
@@ -124,24 +145,26 @@ public class YashanDbConnection extends JdbcConnection {
         DatabaseMetaData metadata = connection().getMetaData();
         Set<TableId> tableIds = new HashSet<>();
         Map<TableId, List<Attribute>> attributesByTable = new HashMap<>();
-        String schemaNamePattern = createPatternFromName(schemaName, metadata.getSearchStringEscape());
+        String schemaNamePattern = modeContext.isMySql() ? null : createPatternFromName(schemaName, metadata.getSearchStringEscape());
         String metadataCatalog = modeContext.isMySql() && catalogName == null ? schemaName : catalogName;
         String metadataSchemaPattern = modeContext.isMySql() ? null : schemaNamePattern;
 
-        try (ResultSet rs = metadata.getTables(metadataCatalog, metadataSchemaPattern, null, supportedTableTypes())) {
-            while (rs.next()) {
-                String metaCatalogName = resolveCatalogName(rs.getString(1));
-                String metaSchemaName = rs.getString(2);
-                String metaTableName = rs.getString(3);
-                String tableType = rs.getString(4);
-                if (isTableType(tableType)) {
-                    if (modeContext.isMySql() && (metaCatalogName == null || metaCatalogName.isEmpty())) {
-                        metaCatalogName = metadataCatalog;
-                    }
-                    TableId tableId = createTableId(metaCatalogName, metaSchemaName, metaTableName);
-                    if (tableFilter == null || tableFilter.isIncluded(tableId)) {
-                        tableIds.add(tableId);
-                        attributesByTable.putAll(getAttributeDetails(tableId, tableType));
+        if (modeContext.isMySql()) {
+            tableIds.addAll(getMySqlTableIds(metadataCatalog, tableFilter, attributesByTable));
+        }
+        else {
+            try (ResultSet rs = metadata.getTables(metadataCatalog, metadataSchemaPattern, null, supportedTableTypes())) {
+                while (rs.next()) {
+                    String metaCatalogName = resolveCatalogName(rs.getString(1));
+                    String metaSchemaName = rs.getString(2);
+                    String metaTableName = rs.getString(3);
+                    String tableType = rs.getString(4);
+                    if (isTableType(tableType)) {
+                        TableId tableId = createTableId(metaCatalogName, metaSchemaName, metaTableName);
+                        if (tableFilter == null || tableFilter.isIncluded(tableId)) {
+                            tableIds.add(tableId);
+                            attributesByTable.putAll(getAttributeDetails(tableId, tableType));
+                        }
                     }
                 }
             }
@@ -151,10 +174,14 @@ public class YashanDbConnection extends JdbcConnection {
         Map<TableId, List<Column>> columnsByTable = new HashMap<>();
         for (TableId tableId : tableIds) {
             LOGGER.debug("Retrieving columns of table {}", tableId);
-            String columnCatalog = modeContext.isMySql() ? tableId.catalog() : catalogName;
-            String columnSchema = modeContext.isMySql() ? null : tableId.schema();
-            Map<TableId, List<Column>> columns = getColumnsDetails(columnCatalog, columnSchema, tableId.table(),
-                    tableFilter, columnFilter, metadata, Collections.emptySet());
+            Map<TableId, List<Column>> columns;
+            if (modeContext.isMySql()) {
+                columns = getMySqlColumnsDetails(tableId, columnFilter);
+            }
+            else {
+                columns = getColumnsDetails(catalogName, tableId.schema(), tableId.table(),
+                        tableFilter, columnFilter, metadata, Collections.emptySet());
+            }
             columnsByTable.putAll(columns);
         }
 
@@ -180,14 +207,257 @@ public class YashanDbConnection extends JdbcConnection {
         }
     }
 
+    private Set<TableId> getMySqlTableIds(String catalogName, TableFilter tableFilter,
+                                          Map<TableId, List<Attribute>> attributesByTable)
+            throws SQLException {
+        String query = catalogName == null ? MYSQL_TABLES_QUERY : MYSQL_TABLES_BY_SCHEMA_QUERY;
+        return prepareQueryAndMap(query, statement -> {
+            if (catalogName != null) {
+                statement.setString(1, catalogName);
+            }
+        }, resultSet -> {
+            Set<TableId> tableIds = new HashSet<>();
+            while (resultSet.next()) {
+                String tableCatalog = resolveCatalogName(resultSet.getString(1));
+                if (tableCatalog == null || tableCatalog.isEmpty()) {
+                    tableCatalog = catalogName;
+                }
+                String tableName = resultSet.getString(2);
+                TableId tableId = createTableId(tableCatalog, null, tableName);
+                if (tableFilter == null || tableFilter.isIncluded(tableId)) {
+                    tableIds.add(tableId);
+                    attributesByTable.putAll(getAttributeDetails(tableId, "TABLE"));
+                }
+            }
+            return tableIds;
+        });
+    }
+
+    private Map<TableId, List<Column>> getMySqlColumnsDetails(TableId tableId, ColumnNameFilter columnFilter)
+            throws SQLException {
+        return prepareQueryAndMap(MYSQL_COLUMNS_QUERY, statement -> {
+            statement.setString(1, tableId.catalog());
+            statement.setString(2, tableId.table());
+        }, resultSet -> {
+            Map<TableId, List<Column>> columnsByTable = new HashMap<>();
+            Set<String> lowercaseColumnNames = new HashSet<>();
+
+            while (resultSet.next()) {
+                String columnName = resultSet.getString(3);
+                String lowercaseColumnName = columnName.toLowerCase(Locale.ROOT);
+                if (!lowercaseColumnNames.add(lowercaseColumnName)) {
+                    LOGGER.warn("Table '{}' has columns that differ only by case. Column name: '{}'. "
+                            + "Debezium does not support case-sensitive duplicate column names.", tableId, columnName);
+                }
+                if (columnFilter != null && !columnFilter.matches(tableId.catalog(), tableId.schema(), tableId.table(), columnName)) {
+                    continue;
+                }
+
+                String typeName = resultSet.getString(4);
+                if (typeName == null) {
+                    typeName = "UNKNOWN";
+                }
+
+                Integer characterMaximumLength = nullableInteger(resultSet, 5);
+                Integer numericPrecision = nullableInteger(resultSet, 6);
+                Integer numericScale = nullableInteger(resultSet, 7);
+                Integer length = numericPrecision != null ? numericPrecision : characterMaximumLength;
+                String defaultValue = resultSet.getString(9);
+                String extra = resultSet.getString(11);
+
+                ColumnEditor column = Column.editor()
+                        .name(columnName)
+                        .type(typeName)
+                        .jdbcType(resolveMySqlJdbcType(typeName))
+                        .nativeType(resolveNativeType(typeName))
+                        .length(length == null ? 0 : length)
+                        .optional(isMySqlColumnNullable(resultSet.getString(8)))
+                        .position(resultSet.getInt(10))
+                        .autoIncremented(hasExtraFlag(extra, "auto_increment"))
+                        .generated(hasExtraFlag(extra, "generated"));
+                if (numericScale != null) {
+                    column.scale(numericScale);
+                }
+
+                column = overrideColumn(column);
+                if (defaultValue != null) {
+                    column.defaultValueExpression(defaultValue);
+                }
+                columnsByTable.computeIfAbsent(tableId, ignored -> new ArrayList<>()).add(column.create());
+            }
+            return columnsByTable;
+        });
+    }
+
+    private static Integer nullableInteger(ResultSet resultSet, int columnIndex) throws SQLException {
+        Object value = resultSet.getObject(columnIndex);
+        if (value == null) {
+            return null;
+        }
+        return value instanceof Number ? ((Number) value).intValue() : Integer.valueOf(value.toString());
+    }
+
+    private static boolean isMySqlColumnNullable(String nullable) {
+        return nullable == null || "YES".equalsIgnoreCase(nullable) || "1".equals(nullable);
+    }
+
+    private static boolean hasExtraFlag(String extra, String flag) {
+        return extra != null && extra.toLowerCase(Locale.ROOT).contains(flag);
+    }
+
+    private static int resolveMySqlJdbcType(String typeName) {
+        switch (typeName.toLowerCase(Locale.ROOT)) {
+            case "bit":
+                return Types.BIT;
+            case "tinyint":
+                return Types.TINYINT;
+            case "smallint":
+                return Types.SMALLINT;
+            case "mediumint":
+            case "int":
+            case "integer":
+                return Types.INTEGER;
+            case "bigint":
+                return Types.BIGINT;
+            case "decimal":
+            case "number":
+            case "numeric":
+                return Types.NUMERIC;
+            case "float":
+            case "binary_float":
+                return Types.FLOAT;
+            case "double":
+            case "binary_double":
+            case "real":
+                return Types.DOUBLE;
+            case "bool":
+            case "boolean":
+                return Types.BOOLEAN;
+            case "date":
+                return Types.DATE;
+            case "time":
+                return Types.TIME;
+            case "datetime":
+            case "timestamp":
+                return Types.TIMESTAMP;
+            case "timestamp_ltz":
+            case "timestamp with local time zone":
+                return YasTypes.TIMESTAMP_LTZ;
+            case "timestamp_tz":
+            case "timestamp with time zone":
+                return YasTypes.TIMESTAMP_TZ;
+            case "interval year to month":
+                return YasTypes.YM_INTERVAL;
+            case "interval day to second":
+                return YasTypes.DS_INTERVAL;
+            case "char":
+                return Types.CHAR;
+            case "nchar":
+                return Types.NCHAR;
+            case "varchar":
+            case "varchar2":
+            case "enum":
+            case "set":
+                return Types.VARCHAR;
+            case "nvarchar":
+            case "nvarchar2":
+                return Types.NVARCHAR;
+            case "binary":
+                return Types.BINARY;
+            case "varbinary":
+                return Types.VARBINARY;
+            case "tinyblob":
+            case "blob":
+            case "mediumblob":
+            case "longblob":
+                return Types.BLOB;
+            case "tinytext":
+            case "text":
+            case "mediumtext":
+            case "longtext":
+            case "clob":
+                return Types.CLOB;
+            case "nclob":
+                return Types.NCLOB;
+            case "raw":
+                return YasTypes.RAW;
+            case "xml":
+            case "xmltype":
+                return YasTypes.SQLXML;
+            case "rowid":
+                return Types.VARCHAR;
+            case "json":
+                return YasTypes.JSON;
+            default:
+                return Types.OTHER;
+        }
+    }
+
     @Override
     public List<String> readPrimaryKeyNames(DatabaseMetaData metadata, TableId id) throws SQLException {
+        if (modeContext.isMySql()) {
+            TableId mysqlTableId = metadataTableId(id);
+            return prepareQueryAndMap(MYSQL_PRIMARY_KEY_QUERY, statement -> {
+                statement.setString(1, mysqlTableId.catalog());
+                statement.setString(2, mysqlTableId.table());
+            }, resultSet -> {
+                List<String> columnNames = new ArrayList<>();
+                while (resultSet.next()) {
+                    columnNames.add(resultSet.getString(1));
+                }
+                return columnNames;
+            });
+        }
         return super.readPrimaryKeyNames(metadata, metadataTableId(id));
     }
 
     @Override
     public List<String> readTableUniqueIndices(DatabaseMetaData metadata, TableId id) throws SQLException {
+        if (modeContext.isMySql()) {
+            TableId mysqlTableId = metadataTableId(id);
+            return prepareQueryAndMap(MYSQL_UNIQUE_INDEX_QUERY, statement -> {
+                statement.setString(1, mysqlTableId.catalog());
+                statement.setString(2, mysqlTableId.table());
+            }, resultSet -> readMySqlUniqueIndexColumns(resultSet));
+        }
         return super.readTableUniqueIndices(metadata, metadataTableId(id));
+    }
+
+    private List<String> readMySqlUniqueIndexColumns(ResultSet resultSet) throws SQLException {
+        List<String> columnNames = new ArrayList<>();
+        String currentIndexName = null;
+        boolean currentIndexIncluded = true;
+
+        while (resultSet.next()) {
+            String indexName = resultSet.getString(1);
+            String columnName = resultSet.getString(2);
+            int columnPosition = resultSet.getInt(3);
+            if (indexName == null) {
+                continue;
+            }
+
+            if (currentIndexName != null && !currentIndexName.equals(indexName)) {
+                if (currentIndexIncluded) {
+                    return columnNames;
+                }
+                columnNames.clear();
+                currentIndexIncluded = true;
+            }
+            currentIndexName = indexName;
+
+            if (!isTableUniqueIndexIncluded(indexName, columnName)) {
+                currentIndexIncluded = false;
+                continue;
+            }
+            if (columnName != null && columnPosition > 0) {
+                while (columnNames.size() < columnPosition) {
+                    columnNames.add(null);
+                }
+                columnNames.set(columnPosition - 1, columnName);
+            }
+        }
+
+        return currentIndexIncluded ? columnNames : Collections.emptyList();
     }
 
     private TableId metadataTableId(TableId id) {

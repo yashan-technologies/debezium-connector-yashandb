@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doReturn;
@@ -19,6 +20,7 @@ import static org.mockito.Mockito.when;
 
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.SQLSyntaxErrorException;
@@ -148,22 +150,113 @@ class YashanDbConnectionSchemaTest {
                 return YashanDbConnectionSchemaTest.this.jdbcConnection;
             }
         };
-        doReturn(resultSet(new Object[]{ "APP", null, "ORDERS", "TABLE" }))
-                .when(metadata).getTables(eq("APP"), isNull(), isNull(), any(String[].class));
-        Object[] orderId = column(null, "ORDERS", "ID", Types.INTEGER, 1);
-        orderId[0] = "APP";
-        doReturn(resultSet(orderId)).when(metadata).getColumns("APP", null, "ORDERS", null);
+        PreparedStatement tablesStatement = mock(PreparedStatement.class);
+        PreparedStatement columnsStatement = mock(PreparedStatement.class);
+        PreparedStatement primaryKeyStatement = mock(PreparedStatement.class);
+        when(jdbcConnection.prepareStatement(contains("information_schema.tables"))).thenReturn(tablesStatement);
+        when(jdbcConnection.prepareStatement(contains("information_schema.columns"))).thenReturn(columnsStatement);
+        when(jdbcConnection.prepareStatement(contains("information_schema.key_column_usage"))).thenReturn(primaryKeyStatement);
+        doReturn(resultSet(new Object[]{ "APP", "ORDERS" })).when(tablesStatement).executeQuery();
+        doReturn(resultSet(mysqlColumn("APP", "ORDERS", "ID", "bigint", null, 19, 0, "NO", null, 1, "auto_increment"),
+                mysqlColumn("APP", "ORDERS", "DESCRIPTION", "varchar", 255, null, null, "YES", "'new'", 2, null)))
+                .when(columnsStatement).executeQuery();
+        doReturn(resultSet(new Object[]{ "ID" })).when(primaryKeyStatement).executeQuery();
 
         mysqlConnection.readSchema(tables, null, "APP", null, null, false);
 
         TableId orders = new TableId("APP", null, "ORDERS");
         assertThat(mysqlConnection.createTableId("APP", null, "ORDERS")).isEqualTo(orders);
         assertThat(tables.tableIds()).containsExactly(orders);
-        verify(metadata).getTables(eq("APP"), isNull(), isNull(), any(String[].class));
-        verify(metadata).getColumns("APP", null, "ORDERS", null);
-        verify(metadata).getPrimaryKeys("APP", null, "ORDERS");
-        verify(metadata).getIndexInfo("APP", null, "ORDERS", true, true);
-        verify(metadata, never()).getTables(isNull(), eq("APP"), isNull(), any(String[].class));
+        assertThat(tables.forTable(orders).columns()).extracting(Column::name).containsExactly("ID", "DESCRIPTION");
+        assertThat(tables.forTable(orders).columnWithName("ID").jdbcType()).isEqualTo(Types.BIGINT);
+        assertThat(tables.forTable(orders).columnWithName("ID").isAutoIncremented()).isTrue();
+        assertThat(tables.forTable(orders).columnWithName("ID").isOptional()).isFalse();
+        assertThat(tables.forTable(orders).columnWithName("ID").scale()).contains(0);
+        assertThat(tables.forTable(orders).columnWithName("DESCRIPTION").length()).isEqualTo(255);
+        assertThat(tables.forTable(orders).columnWithName("DESCRIPTION").isOptional()).isTrue();
+        assertThat(tables.forTable(orders).columnWithName("DESCRIPTION").defaultValueExpression()).contains("'new'");
+        assertThat(tables.forTable(orders).primaryKeyColumnNames()).containsExactly("ID");
+        verify(metadata, never()).getTables(any(), any(), any(), any());
+        verify(metadata, never()).getColumns(any(), any(), any(), any());
+        verify(metadata, never()).getPrimaryKeys(any(), any(), any());
+        verify(metadata, never()).getIndexInfo(any(), any(), any(), anyBoolean(), anyBoolean());
+        verify(jdbcConnection).prepareStatement(contains("information_schema.columns"));
+        verify(jdbcConnection).prepareStatement(contains("information_schema.tables"));
+        verify(jdbcConnection).prepareStatement(contains("information_schema.key_column_usage"));
+        verify(tablesStatement).setString(1, "APP");
+        verify(columnsStatement).setString(1, "APP");
+        verify(columnsStatement).setString(2, "ORDERS");
+        verify(primaryKeyStatement).setString(1, "APP");
+        verify(primaryKeyStatement).setString(2, "ORDERS");
+    }
+
+    @Test
+    void shouldApplyColumnFilterToMysqlSqlMetadata() throws SQLException {
+        YashanDbConnection mysqlConnection = new YashanDbConnection(JdbcConfiguration.create().build(), new YashanDbModeContext(true)) {
+            @Override
+            public Connection connection() {
+                return YashanDbConnectionSchemaTest.this.jdbcConnection;
+            }
+        };
+        PreparedStatement tablesStatement = mock(PreparedStatement.class);
+        PreparedStatement columnsStatement = mock(PreparedStatement.class);
+        PreparedStatement primaryKeyStatement = mock(PreparedStatement.class);
+        PreparedStatement uniqueIndexStatement = mock(PreparedStatement.class);
+        when(jdbcConnection.prepareStatement(contains("information_schema.tables"))).thenReturn(tablesStatement);
+        when(jdbcConnection.prepareStatement(contains("information_schema.columns"))).thenReturn(columnsStatement);
+        when(jdbcConnection.prepareStatement(contains("information_schema.key_column_usage"))).thenReturn(primaryKeyStatement);
+        when(jdbcConnection.prepareStatement(contains("information_schema.statistics"))).thenReturn(uniqueIndexStatement);
+        doReturn(resultSet(new Object[]{ "APP", "ORDERS" })).when(tablesStatement).executeQuery();
+        doReturn(resultSet(mysqlColumn("APP", "ORDERS", "ID", "bigint", null, 19, 0, "NO", null, 1, null),
+                mysqlColumn("APP", "ORDERS", "SECRET", "varchar", 100, null, null, "YES", null, 2, null)))
+                .when(columnsStatement).executeQuery();
+        doReturn(resultSet()).when(primaryKeyStatement).executeQuery();
+        doReturn(resultSet()).when(uniqueIndexStatement).executeQuery();
+
+        mysqlConnection.readSchema(tables, null, "APP", null, (catalog, schema, table, column) -> !column.equals("SECRET"), false);
+
+        TableId orders = new TableId("APP", null, "ORDERS");
+        assertThat(tables.forTable(orders).columns()).extracting(Column::name).containsExactly("ID");
+        verify(metadata, never()).getTables(any(), any(), any(), any());
+        verify(metadata, never()).getColumns(any(), any(), any(), any());
+        verify(metadata, never()).getPrimaryKeys(any(), any(), any());
+        verify(metadata, never()).getIndexInfo(any(), any(), any(), anyBoolean(), anyBoolean());
+    }
+
+    @Test
+    void shouldUseSqlUniqueIndexWhenMysqlTableHasNoPrimaryKey() throws SQLException {
+        YashanDbConnection mysqlConnection = new YashanDbConnection(JdbcConfiguration.create().build(), new YashanDbModeContext(true)) {
+            @Override
+            public Connection connection() {
+                return YashanDbConnectionSchemaTest.this.jdbcConnection;
+            }
+        };
+        PreparedStatement tablesStatement = mock(PreparedStatement.class);
+        PreparedStatement columnsStatement = mock(PreparedStatement.class);
+        PreparedStatement primaryKeyStatement = mock(PreparedStatement.class);
+        PreparedStatement uniqueIndexStatement = mock(PreparedStatement.class);
+        when(jdbcConnection.prepareStatement(contains("information_schema.tables"))).thenReturn(tablesStatement);
+        when(jdbcConnection.prepareStatement(contains("information_schema.columns"))).thenReturn(columnsStatement);
+        when(jdbcConnection.prepareStatement(contains("information_schema.key_column_usage"))).thenReturn(primaryKeyStatement);
+        when(jdbcConnection.prepareStatement(contains("information_schema.statistics"))).thenReturn(uniqueIndexStatement);
+        doReturn(resultSet(new Object[]{ "APP", "ORDERS" })).when(tablesStatement).executeQuery();
+        doReturn(resultSet(mysqlColumn("APP", "ORDERS", "ID", "bigint", null, 19, 0, "NO", null, 1, null),
+                mysqlColumn("APP", "ORDERS", "REGION", "varchar", 32, null, null, "NO", null, 2, null)))
+                .when(columnsStatement).executeQuery();
+        doReturn(resultSet()).when(primaryKeyStatement).executeQuery();
+        doReturn(resultSet(new Object[]{ "ORDERS_UK", "REGION", 1 }, new Object[]{ "ORDERS_UK", "ID", 2 }))
+                .when(uniqueIndexStatement).executeQuery();
+
+        mysqlConnection.readSchema(tables, null, "APP", null, null, false);
+
+        TableId orders = new TableId("APP", null, "ORDERS");
+        assertThat(tables.forTable(orders).primaryKeyColumnNames()).containsExactly("REGION", "ID");
+        verify(metadata, never()).getTables(any(), any(), any(), any());
+        verify(metadata, never()).getPrimaryKeys(any(), any(), any());
+        verify(metadata, never()).getIndexInfo(any(), any(), any(), anyBoolean(), anyBoolean());
+        verify(uniqueIndexStatement).setString(1, "APP");
+        verify(uniqueIndexStatement).setString(2, "ORDERS");
+        verify(jdbcConnection).prepareStatement(contains("ORDER BY index_name, seq_in_index"));
     }
 
     @Test
@@ -242,6 +335,13 @@ class YashanDbConnectionSchemaTest {
         row[12] = "0";
         row[16] = position;
         return row;
+    }
+
+    private static Object[] mysqlColumn(String schema, String table, String name, String typeName,
+                                        Integer characterMaximumLength, Integer numericPrecision, Integer numericScale,
+                                        String nullable, String defaultValue, int position, String extra) {
+        return new Object[]{ schema, table, name, typeName, characterMaximumLength, numericPrecision, numericScale,
+                nullable, defaultValue, position, extra };
     }
 
     private static ResultSet resultSet(Object[]... rows) throws SQLException {

@@ -81,14 +81,7 @@ public class YashanDbConnectorTask extends BaseSourceTask<YashanDbPartition, Yas
     @Override
     public CdcSourceTaskContext<? extends CommonConnectorConfig> preStart(Configuration config) {
 
-        YashanDbConnectorConfig bootstrapConfig = new YashanDbConnectorConfig(config);
-        try (YashanDbConnection bootstrap = new YashanDbConnection(bootstrapConfig.getJdbcConfig())) {
-            YashanDbModeContext mode = YashanDbModeDetector.detect(bootstrap.connection());
-            connectorConfig = new YashanDbConnectorConfig(config, mode);
-        }
-        catch (SQLException e) {
-            throw new DebeziumException("Unable to connect for COMPAT_VECTOR mode detection", e);
-        }
+        connectorConfig = new YashanDbConnectorConfig(config);
         taskContext = new YashanDbTaskContext(config, connectorConfig);
 
         return taskContext;

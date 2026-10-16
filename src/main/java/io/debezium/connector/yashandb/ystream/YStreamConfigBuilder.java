@@ -108,6 +108,16 @@ public final class YStreamConfigBuilder {
         return name.replaceAll("[._-]", "").toLowerCase(Locale.ROOT);
     }
 
+    /** Returns the configured YStream MySQL mode before a complete client config can be built. */
+    public static boolean mysqlMode(List<String> entries) {
+        for (Map.Entry<String, String> option : parse(entries).entrySet()) {
+            if (normalizedName(option.getKey()).equals("mysqlmode")) {
+                return (boolean) convert(option.getValue(), boolean.class);
+            }
+        }
+        return false;
+    }
+
     /**
      * Resolves the option's setter by reflection, converts the value to the setter's parameter type, and invokes it.
      *

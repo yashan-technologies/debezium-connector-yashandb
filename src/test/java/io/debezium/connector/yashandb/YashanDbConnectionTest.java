@@ -7,10 +7,22 @@ package io.debezium.connector.yashandb;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
 import java.util.Optional;
+import java.util.Properties;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
 
 import io.debezium.jdbc.JdbcConfiguration;
 import io.debezium.relational.TableId;
@@ -19,6 +31,40 @@ import io.debezium.relational.TableId;
  * Unit tests for {@link YashanDbConnection}.
  */
 class YashanDbConnectionTest {
+
+    @ParameterizedTest
+    @CsvSource({ "true,false,", "true,true,", "true,false,yashan", "false,false,", "false,true,", "false,false,yashan" })
+    void shouldPassCompatibilityPropertyToDriver(boolean mysqlMode, boolean useRawUrl, String configuredCompatibility) throws SQLException {
+        JdbcConfiguration.Builder builder = JdbcConfiguration.create()
+                .withHostname("localhost")
+                .withPort(1688)
+                .withDatabase("yashandb")
+                .withUser("test_user")
+                .with("customProperty", "custom_value");
+        String url = useRawUrl ? "jdbc:yasdb://db.example.com:5521/mydb" : "jdbc:yasdb://localhost:1688/yashandb";
+        if (useRawUrl) {
+            builder.with("url", url);
+        }
+        if (configuredCompatibility != null) {
+            builder.with("compatVector", configuredCompatibility);
+        }
+        JdbcConfiguration config = builder.build();
+        Connection jdbcConnection = mock(Connection.class);
+
+        try (MockedStatic<DriverManager> driverManager = mockStatic(DriverManager.class);
+                YashanDbConnection connection = new YashanDbConnection(config, new YashanDbModeContext(mysqlMode))) {
+            driverManager.when(() -> DriverManager.getConnection(eq(url), any(Properties.class))).thenReturn(jdbcConnection);
+
+            connection.connect();
+
+            ArgumentCaptor<Properties> properties = ArgumentCaptor.forClass(Properties.class);
+            driverManager.verify(() -> DriverManager.getConnection(eq(url), properties.capture()));
+            assertThat(properties.getValue().getProperty("compatVector")).isEqualTo(mysqlMode ? "mysql" : configuredCompatibility);
+            assertThat(properties.getValue().getProperty("user")).isEqualTo("test_user");
+            assertThat(properties.getValue().getProperty("customProperty")).isEqualTo("custom_value");
+            assertThat(config.getString("compatVector")).isEqualTo(configuredCompatibility);
+        }
+    }
 
     // -----------------------------------------------------------------------
     // connectionString tests

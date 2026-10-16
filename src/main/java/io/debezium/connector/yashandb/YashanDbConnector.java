@@ -78,9 +78,8 @@ public class YashanDbConnector extends RelationalBaseSourceConnector implements 
 
         try {
             YashanDbConnectorConfig connectorConfig = new YashanDbConnectorConfig(config);
-            try (YashanDbConnection connection = new YashanDbConnection(connectorConfig.getJdbcConfig())) {
-                // Verify that COMPAT_VECTOR is readable and identifies a supported database mode.
-                YashanDbModeDetector.detect(connection.connection());
+            try (YashanDbConnection connection = new YashanDbConnection(connectorConfig.getJdbcConfig(), connectorConfig.getModeContext())) {
+                connection.connection();
                 LOGGER.debug("Successfully tested connection for {} with user '{}'", connectorConfig.getJdbcConfig().getHostname(),
                         connection.username());
             }
