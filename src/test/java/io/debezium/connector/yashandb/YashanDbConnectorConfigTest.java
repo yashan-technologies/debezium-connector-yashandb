@@ -211,7 +211,7 @@ class YashanDbConnectorConfigTest {
             Configuration nativeConfig = Configuration.create().with("topic.prefix", "native_test").build();
             Configuration mysqlConfig = Configuration.create()
                     .with("topic.prefix", "mysql_test")
-                    .with("ystream.additional.properties", "mysql.mode=true")
+                    .with("ystream.additional.properties.mysql.mode", "true")
                     .build();
 
             assertThat(new YashanDbConnectorConfig(nativeConfig).getModeContext().isMySql()).isFalse();

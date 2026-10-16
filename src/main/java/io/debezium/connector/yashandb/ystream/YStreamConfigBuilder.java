@@ -65,6 +65,16 @@ public final class YStreamConfigBuilder {
         }
     }
 
+    /** Returns the configured YStream MySQL mode before a complete client config can be built. */
+    public static boolean mysqlMode(Map<String, String> properties) {
+        for (Map.Entry<String, String> option : validate(properties).entrySet()) {
+            if (normalizedName(option.getKey()).equals("mysqlmode")) {
+                return (boolean) convert(option.getValue(), boolean.class);
+            }
+        }
+        return false;
+    }
+
     /**
      * Validates option names, values, and setters without opening a YStream connection.
      *
@@ -106,16 +116,6 @@ public final class YStreamConfigBuilder {
 
     private static String normalizedName(String name) {
         return name.replaceAll("[._-]", "").toLowerCase(Locale.ROOT);
-    }
-
-    /** Returns the configured YStream MySQL mode before a complete client config can be built. */
-    public static boolean mysqlMode(List<String> entries) {
-        for (Map.Entry<String, String> option : parse(entries).entrySet()) {
-            if (normalizedName(option.getKey()).equals("mysqlmode")) {
-                return (boolean) convert(option.getValue(), boolean.class);
-            }
-        }
-        return false;
     }
 
     /**

@@ -39,26 +39,29 @@ class YStreamConfigBuilderTest {
 
     @Test
     void shouldDeriveMysqlModeFromAdditionalProperties() {
-        assertThat(YStreamConfigBuilder.mysqlMode(Collections.emptyList())).isFalse();
-        assertThat(YStreamConfigBuilder.mysqlMode(Collections.singletonList("mysql.mode=false"))).isFalse();
-        assertThat(YStreamConfigBuilder.mysqlMode(Collections.singletonList("mysql.mode=true"))).isTrue();
-        assertThat(YStreamConfigBuilder.mysqlMode(Collections.singletonList("MYSQL_MODE=true"))).isTrue();
+        assertThat(YStreamConfigBuilder.mysqlMode(Collections.emptyMap())).isFalse();
+        assertThat(YStreamConfigBuilder.mysqlMode(Collections.singletonMap("mysql.mode", "false"))).isFalse();
+        assertThat(YStreamConfigBuilder.mysqlMode(Collections.singletonMap("mysql.mode", "true"))).isTrue();
+        assertThat(YStreamConfigBuilder.mysqlMode(Collections.singletonMap("MYSQL_MODE", "true"))).isTrue();
 
         YstreamConfig.Builder<String> builder = minimalBuilder();
-        YStreamConfigBuilder.apply(builder, Collections.singletonList("mysql.mode=true"));
+        YStreamConfigBuilder.apply(builder, Collections.singletonMap("mysql.mode", "true"));
         assertThat(builder.build().isMysqlMode()).isTrue();
 
         YstreamConfig.Builder<String> aliasBuilder = minimalBuilder();
-        YStreamConfigBuilder.apply(aliasBuilder, Collections.singletonList("MYSQL_MODE=true"));
+        YStreamConfigBuilder.apply(aliasBuilder, Collections.singletonMap("MYSQL_MODE", "true"));
         assertThat(aliasBuilder.build().isMysqlMode()).isTrue();
     }
 
     @Test
     void shouldRejectInvalidMysqlModeAndAliasConflict() {
-        assertThatThrownBy(() -> YStreamConfigBuilder.mysqlMode(Collections.singletonList("mysql.mode=maybe")))
+        assertThatThrownBy(() -> YStreamConfigBuilder.mysqlMode(Collections.singletonMap("mysql.mode", "maybe")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Expected true or false");
-        assertThatThrownBy(() -> YStreamConfigBuilder.mysqlMode(Arrays.asList("mysql.mode=true", "mysql_mode=false")))
+        Map<String, String> aliases = new LinkedHashMap<>();
+        aliases.put("mysql.mode", "true");
+        aliases.put("mysql_mode", "false");
+        assertThatThrownBy(() -> YStreamConfigBuilder.mysqlMode(aliases))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Duplicate YStream additional property");
     }

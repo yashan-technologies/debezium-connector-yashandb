@@ -101,15 +101,17 @@ Then restart Kafka Connect to load the new connector.
 
 #### YStream MySQL mode
 
-The connector uses native YashanDB syntax by default. To connect to a MySQL-compatible YashanDB database, set `ystream.additional.properties` to `mysql.mode=true` (or include it among the comma-separated YStream options):
+The connector uses native YashanDB syntax by default. To connect to a MySQL-compatible YashanDB database, set the `mysql.mode` YStream option:
 
 ```json
 {
-  "ystream.additional.properties": "mysql.mode=true"
+  "ystream.additional.properties.mysql.mode": "true"
 }
 ```
 
 This setting selects the YStream client mode, the MySQL dialect for connector-generated SQL and table identifiers, and the JDBC `compatVector=mysql` connection property. The connector does not inspect `COMPAT_VECTOR` to select a mode. Use a separate topic prefix, offsets, and schema history when changing the mode of an existing connector.
+
+Additional YStream builder options use the same `ystream.additional.properties.` prefix, with one connector property per option. For example, `"ystream.additional.properties.enable.sequence.next.val": "true"` maps to the YStream `setEnableSequenceNextVal(true)` builder call. Dedicated connector settings take precedence when they configure the same YStream option. Replace the former comma-separated `ystream.additional.properties` setting with individually prefixed properties when upgrading.
 
 ### Example Configuration
 

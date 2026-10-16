@@ -285,7 +285,7 @@ public class YashanDbConnectorConfig extends HistorizedRelationalDatabaseConnect
             .group(Field.Group.CONNECTOR_ADVANCED,
                     YSTREAM_CLIENT_RESPONSE_TIMEOUT, YSTREAM_POLL_TIMEOUT, YSTREAM_QUEUE_SIZE,
                     YSTREAM_RETRY_MAX_ATTEMPTS, YSTREAM_RETRY_BACKOFF_MS, YSTREAM_RETRY_WINDOW_MS,
-                    YSTREAM_FAULT_TOLERANCE, YSTREAM_ADDITIONAL_PROPERTIES,
+                    YSTREAM_FAULT_TOLERANCE,
                     LOGIC_SHARD_ENABLED, TABLE_READ_THREADS, LOB_ENABLED)
             .group(Field.Group.CONNECTOR, SOURCE_INFO_STRUCT_MAKER)
             .create();
@@ -343,7 +343,7 @@ public class YashanDbConnectorConfig extends HistorizedRelationalDatabaseConnect
      * @param config the configuration properties
      */
     public YashanDbConnectorConfig(Configuration config) {
-        this(config, new YashanDbModeContext(YStreamConfigBuilder.mysqlMode(config.getList(YSTREAM_ADDITIONAL_PROPERTIES))));
+        this(config, new YashanDbModeContext(YStreamConfigBuilder.mysqlMode(additionalYStreamProperties(config))));
     }
 
     public YashanDbConnectorConfig(Configuration config, YashanDbModeContext modeContext) {
