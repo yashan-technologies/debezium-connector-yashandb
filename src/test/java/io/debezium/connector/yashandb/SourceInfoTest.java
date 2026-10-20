@@ -104,11 +104,11 @@ class SourceInfoTest {
     }
 
     @Test
-    void shouldUseCatalogAsTableSchemaInMysqlMode() {
+    void shouldUseTableIdSchemaInMysqlMode() {
         YashanDbConnectorConfig config = new YashanDbConnectorConfig(
                 TestHelper.defaultConfig().build(), new YashanDbModeContext(true));
         SourceInfo sourceInfo = new TestableSourceInfo(config);
-        sourceInfo.tableEvent(new TableId("inventory", null, "orders"));
+        sourceInfo.tableEvent(new TableId(null, "inventory", "orders"));
 
         assertThat(sourceInfo.tableSchema()).isEqualTo("inventory");
     }

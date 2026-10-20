@@ -44,7 +44,6 @@ public class SourceInfo extends BaseSourceInfo {
     private Instant sourceTime;
     private Set<TableId> tableIds;
     private final String databaseName;
-    private final boolean mysqlMode;
 
     // YStream position
     private long positionScn;
@@ -61,8 +60,6 @@ public class SourceInfo extends BaseSourceInfo {
     protected SourceInfo(YashanDbConnectorConfig connectorConfig) {
         super(connectorConfig);
         this.databaseName = connectorConfig.getDatabaseName();
-        YashanDbModeContext modeContext = connectorConfig.getModeContext();
-        this.mysqlMode = modeContext != null && modeContext.isMySql();
     }
 
     /**
@@ -180,7 +177,7 @@ public class SourceInfo extends BaseSourceInfo {
         return (tableIds == null || tableIds.isEmpty()) ? null
                 : tableIds.stream()
                         .filter(Objects::nonNull)
-                        .map(tableId -> mysqlMode ? tableId.catalog() : tableId.schema())
+                        .map(TableId::schema)
                         .distinct()
                         .collect(Collectors.joining(","));
     }

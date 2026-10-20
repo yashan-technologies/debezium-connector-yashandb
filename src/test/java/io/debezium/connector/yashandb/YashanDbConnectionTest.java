@@ -11,10 +11,14 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Types;
 import java.util.Optional;
 import java.util.Properties;
 
@@ -25,12 +29,30 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 
 import io.debezium.jdbc.JdbcConfiguration;
+import io.debezium.relational.Column;
 import io.debezium.relational.TableId;
 
 /**
  * Unit tests for {@link YashanDbConnection}.
  */
 class YashanDbConnectionTest {
+
+    @Test
+    void shouldReadMysqlTimeAsStringForSnapshot() throws SQLException {
+        JdbcConfiguration config = JdbcConfiguration.create()
+                .withHostname("localhost")
+                .withPort(1688)
+                .withDatabase("yashandb")
+                .build();
+        ResultSet resultSet = mock(ResultSet.class);
+        Column column = Column.editor().name("duration").type("time").jdbcType(Types.TIME).create();
+        when(resultSet.getString(1)).thenReturn("838:59:59");
+
+        try (YashanDbConnection connection = new YashanDbConnection(config, new YashanDbModeContext(true))) {
+            assertThat(connection.getColumnValue(resultSet, 1, column, null)).isEqualTo("838:59:59");
+        }
+        verify(resultSet).getString(1);
+    }
 
     @ParameterizedTest
     @CsvSource({ "true,false,", "true,true,", "true,false,yashan", "false,false,", "false,true,", "false,false,yashan" })
@@ -135,7 +157,7 @@ class YashanDbConnectionTest {
                 .withDatabase("yashandb")
                 .build();
         YashanDbConnection mysqlConnection = new YashanDbConnection(config, new YashanDbModeContext(true));
-        TableId mysqlTable = new TableId("inventory", null, "orders");
+        TableId mysqlTable = new TableId(null, "inventory", "orders");
         String mysqlSql = mysqlConnection.buildSelectWithRowLimits(mysqlTable, 10, "ID",
                 Optional.of("ID > 0"), Optional.empty(), "ID");
         String quote = String.valueOf((char) 96);

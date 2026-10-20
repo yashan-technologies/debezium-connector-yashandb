@@ -6,6 +6,7 @@
 package io.debezium.connector.yashandb;
 
 import java.sql.SQLException;
+import java.util.Optional;
 
 import io.debezium.DebeziumException;
 import io.debezium.jdbc.JdbcConnection;
@@ -55,9 +56,23 @@ public class YashanDbSignalBasedIncrementalSnapshotChangeEventSource extends Sig
     protected String getSignalTableName(String dataCollectionId) {
         TableId tableId = YashanDbTableIdParser.parse(dataCollectionId);
         if (connection.isMySqlMode()) {
-            tableId = connection.createTableId(null, tableId.schema(), tableId.table());
+            return connection.quotedTableIdString(tableId);
         }
-        return YashanDbTableIdParser.quoteIfNeeded(tableId, connection.isMySqlMode(), !connection.isMySqlMode(), connection.getSQLKeywords());
+        return YashanDbTableIdParser.quoteIfNeeded(tableId, false, true, connection.getSQLKeywords());
+    }
+
+    @Override
+    protected Optional<String> getDatabaseName(Object dataCollectionId) {
+        if (!connection.isMySqlMode()) {
+            return super.getDatabaseName(dataCollectionId);
+        }
+        if (dataCollectionId instanceof TableId) {
+            return Optional.ofNullable(((TableId) dataCollectionId).schema());
+        }
+        if (dataCollectionId instanceof String) {
+            return Optional.ofNullable(YashanDbTableIdParser.parse((String) dataCollectionId).schema());
+        }
+        return Optional.empty();
     }
 
     @Override

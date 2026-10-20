@@ -36,7 +36,7 @@ class YashanDbDialectDdlTest {
     @Test
     void mysqlDdlUsesQuotedTableAndSecondResultColumn() {
         YashanDbDialect dialect = new YashanDbMySqlDialect();
-        TableId table = new TableId("inventory", null, "orders");
+        TableId table = new TableId(null, "inventory", "orders");
 
         assertThat(dialect.tableDdlUsesParameters()).isFalse();
         String quote = String.valueOf((char) 96);
@@ -45,9 +45,9 @@ class YashanDbDialectDdlTest {
     }
 
     @Test
-    void mysqlTableNameUsesSchemaWhenCatalogIsEmpty() {
+    void mysqlTableNameUsesSchema() {
         YashanDbDialect dialect = new YashanDbMySqlDialect();
-        TableId table = new TableId("", "my`database", "my`table");
+        TableId table = new TableId(null, "my`database", "my`table");
         String quote = String.valueOf((char) 96);
 
         assertThat(dialect.qualifiedTableName(table))
@@ -75,7 +75,7 @@ class YashanDbDialectDdlTest {
         List<TableId> tables = List.of(dialect.tableId("", "inventory", "orders"), dialect.tableId("", "other", "items"));
         PreparedStatement statement = mock(PreparedStatement.class);
 
-        assertThat(tables).containsExactly(new TableId("inventory", null, "orders"), new TableId("other", null, "items"));
+        assertThat(tables).containsExactly(new TableId(null, "inventory", "orders"), new TableId(null, "other", "items"));
         assertThat(dialect.latestTableDdlScnQuery(tables)).isEqualTo("SELECT TIMESTAMP_TO_SCN(MAX(to_timestamp(update_time)))"
                 + " FROM INFORMATION_SCHEMA.tables WHERE (table_schema = ? AND table_name = ?) OR (table_schema = ? AND table_name = ?)");
         dialect.bindLatestTableDdlScnQuery(statement, tables);

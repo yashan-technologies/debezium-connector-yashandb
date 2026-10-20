@@ -143,7 +143,7 @@ class YashanDbConnectionSchemaTest {
     }
 
     @Test
-    void shouldUseCatalogForMysqlModeMetadata() throws SQLException {
+    void shouldUseSchemaForMysqlModeMetadata() throws SQLException {
         YashanDbConnection mysqlConnection = new YashanDbConnection(JdbcConfiguration.create().build(), new YashanDbModeContext(true)) {
             @Override
             public Connection connection() {
@@ -157,22 +157,24 @@ class YashanDbConnectionSchemaTest {
         when(jdbcConnection.prepareStatement(contains("information_schema.columns"))).thenReturn(columnsStatement);
         when(jdbcConnection.prepareStatement(contains("information_schema.key_column_usage"))).thenReturn(primaryKeyStatement);
         doReturn(resultSet(new Object[]{ "APP", "ORDERS" })).when(tablesStatement).executeQuery();
-        doReturn(resultSet(mysqlColumn("APP", "ORDERS", "ID", "bigint", null, 19, 0, "NO", null, 1, "auto_increment"),
-                mysqlColumn("APP", "ORDERS", "DESCRIPTION", "varchar", 255, null, null, "YES", "'new'", 2, null)))
+        doReturn(resultSet(mysqlColumn("APP", "ORDERS", "ID", "bigint(20) unsigned", null, 19, 0, "NO", null, 1, "auto_increment"),
+                mysqlColumn("APP", "ORDERS", "DESCRIPTION", "varchar(255)", 255, null, null, "YES", "'new'", 2, null)))
                 .when(columnsStatement).executeQuery();
         doReturn(resultSet(new Object[]{ "ID" })).when(primaryKeyStatement).executeQuery();
 
         mysqlConnection.readSchema(tables, null, "APP", null, null, false);
 
-        TableId orders = new TableId("APP", null, "ORDERS");
+        TableId orders = new TableId(null, "APP", "ORDERS");
         assertThat(mysqlConnection.createTableId("APP", null, "ORDERS")).isEqualTo(orders);
         assertThat(tables.tableIds()).containsExactly(orders);
         assertThat(tables.forTable(orders).columns()).extracting(Column::name).containsExactly("ID", "DESCRIPTION");
         assertThat(tables.forTable(orders).columnWithName("ID").jdbcType()).isEqualTo(Types.BIGINT);
+        assertThat(tables.forTable(orders).columnWithName("ID").typeName()).isEqualTo("bigint(20) unsigned");
         assertThat(tables.forTable(orders).columnWithName("ID").isAutoIncremented()).isTrue();
         assertThat(tables.forTable(orders).columnWithName("ID").isOptional()).isFalse();
         assertThat(tables.forTable(orders).columnWithName("ID").scale()).contains(0);
         assertThat(tables.forTable(orders).columnWithName("DESCRIPTION").length()).isEqualTo(255);
+        assertThat(tables.forTable(orders).columnWithName("DESCRIPTION").jdbcType()).isEqualTo(Types.VARCHAR);
         assertThat(tables.forTable(orders).columnWithName("DESCRIPTION").isOptional()).isTrue();
         assertThat(tables.forTable(orders).columnWithName("DESCRIPTION").defaultValueExpression()).contains("'new'");
         assertThat(tables.forTable(orders).primaryKeyColumnNames()).containsExactly("ID");
@@ -180,7 +182,7 @@ class YashanDbConnectionSchemaTest {
         verify(metadata, never()).getColumns(any(), any(), any(), any());
         verify(metadata, never()).getPrimaryKeys(any(), any(), any());
         verify(metadata, never()).getIndexInfo(any(), any(), any(), anyBoolean(), anyBoolean());
-        verify(jdbcConnection).prepareStatement(contains("information_schema.columns"));
+        verify(jdbcConnection).prepareStatement(contains("column_name, column_type"));
         verify(jdbcConnection).prepareStatement(contains("information_schema.tables"));
         verify(jdbcConnection).prepareStatement(contains("information_schema.key_column_usage"));
         verify(tablesStatement).setString(1, "APP");
@@ -215,7 +217,7 @@ class YashanDbConnectionSchemaTest {
 
         mysqlConnection.readSchema(tables, null, "APP", null, (catalog, schema, table, column) -> !column.equals("SECRET"), false);
 
-        TableId orders = new TableId("APP", null, "ORDERS");
+        TableId orders = new TableId(null, "APP", "ORDERS");
         assertThat(tables.forTable(orders).columns()).extracting(Column::name).containsExactly("ID");
         verify(metadata, never()).getTables(any(), any(), any(), any());
         verify(metadata, never()).getColumns(any(), any(), any(), any());
@@ -249,7 +251,7 @@ class YashanDbConnectionSchemaTest {
 
         mysqlConnection.readSchema(tables, null, "APP", null, null, false);
 
-        TableId orders = new TableId("APP", null, "ORDERS");
+        TableId orders = new TableId(null, "APP", "ORDERS");
         assertThat(tables.forTable(orders).primaryKeyColumnNames()).containsExactly("REGION", "ID");
         verify(metadata, never()).getTables(any(), any(), any(), any());
         verify(metadata, never()).getPrimaryKeys(any(), any(), any());

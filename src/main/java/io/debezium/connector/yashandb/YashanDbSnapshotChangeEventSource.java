@@ -218,7 +218,7 @@ public class YashanDbSnapshotChangeEventSource extends RelationalSnapshotChangeE
         }
 
         Set<String> namespaces = capturedSchemaTables.stream()
-                .map(tableId -> connectorConfig.getModeContext().isMySql() ? tableId.catalog() : tableId.schema())
+                .map(TableId::schema)
                 .collect(Collectors.toSet());
 
         final Tables.TableFilter tableFilter = getTableFilter(snapshottingTask, snapshotContext);
@@ -272,7 +272,7 @@ public class YashanDbSnapshotChangeEventSource extends RelationalSnapshotChangeE
         return SchemaChangeEvent.ofCreate(
                 snapshotContext.partition,
                 snapshotContext.offset,
-                connectorConfig.getModeContext().isMySql() ? table.id().catalog() : snapshotContext.catalogName,
+                snapshotContext.catalogName,
                 table.id().schema(),
                 jdbcConnection.getTableMetadataDdl(table.id()),
                 table,
@@ -313,10 +313,8 @@ public class YashanDbSnapshotChangeEventSource extends RelationalSnapshotChangeE
     protected List<Pattern> getSignalDataCollectionPattern(String signalingDataCollection) {
         // YashanDB signal collection names include a database prefix, while the connector matches the
         // final namespace and table components for the selected database mode.
-        final TableId tableId = TableId.parse(signalingDataCollection);
-        String namespace = connectorConfig.getModeContext().isMySql()
-                ? (tableId.catalog() == null ? tableId.schema() : tableId.catalog())
-                : tableId.schema();
+        final TableId tableId = YashanDbTableIdParser.parse(signalingDataCollection);
+        String namespace = tableId.schema();
         return Strings.listOfRegex(namespace + "." + tableId.table(), Pattern.CASE_INSENSITIVE);
     }
 

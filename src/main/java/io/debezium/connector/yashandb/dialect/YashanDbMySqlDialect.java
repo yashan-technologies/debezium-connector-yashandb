@@ -28,13 +28,13 @@ public final class YashanDbMySqlDialect implements YashanDbDialect {
 
     @Override
     public TableId tableId(String database, String schema, String table) {
-        String catalog = database == null || database.isEmpty() ? schema : database;
-        return new TableId(catalog, null, table);
+        String databaseName = schema == null || schema.isEmpty() ? database : schema;
+        return new TableId(null, databaseName, table);
     }
 
     @Override
     public String qualifiedTableName(TableId tableId) {
-        String database = tableId.catalog() != null && !tableId.catalog().isEmpty() ? tableId.catalog() : tableId.schema();
+        String database = tableId.schema();
         return database == null || database.isEmpty() ? quote(tableId.table()) : quote(database) + "." + quote(tableId.table());
     }
 
@@ -59,7 +59,7 @@ public final class YashanDbMySqlDialect implements YashanDbDialect {
     public void bindLatestTableDdlScnQuery(PreparedStatement statement, Collection<TableId> tables) throws SQLException {
         int parameterIndex = 1;
         for (TableId table : tables) {
-            statement.setString(parameterIndex++, table.catalog());
+            statement.setString(parameterIndex++, table.schema());
             statement.setString(parameterIndex++, table.table());
         }
     }

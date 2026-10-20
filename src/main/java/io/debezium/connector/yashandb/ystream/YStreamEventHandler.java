@@ -244,16 +244,22 @@ class YStreamEventHandler {
             Object[] oldValues;
             try {
                 tableFor = schema.tableFor(tableId);
-                newValues = truncateTable ? null : YStreamChangeRecordEmitter.getColumnValues(tableFor, record.getYstreamDml().getNewValues(), chunkValues);
-                oldValues = truncateTable ? null : YStreamChangeRecordEmitter.getColumnValues(tableFor, record.getYstreamDml().getOldValues(), oldChunkValues);
+                newValues = truncateTable ? null
+                        : YStreamChangeRecordEmitter.getColumnValues(tableFor, record.getYstreamDml().getNewValues(), chunkValues,
+                                connectorConfig.getModeContext().isMySql());
+                oldValues = truncateTable ? null
+                        : YStreamChangeRecordEmitter.getColumnValues(tableFor, record.getYstreamDml().getOldValues(), oldChunkValues,
+                                connectorConfig.getModeContext().isMySql());
             }
             catch (IllegalStateException e) {
                 LOGGER.warn("Try to read table metadata again to resolve the error when obtaining field values.");
                 printDiffMetadata(record, tableId);
                 schema.getTables().removeTable(tableId);
                 tableFor = getTable(tableId);
-                newValues = YStreamChangeRecordEmitter.getColumnValues(tableFor, record.getYstreamDml().getNewValues(), chunkValues);
-                oldValues = YStreamChangeRecordEmitter.getColumnValues(tableFor, record.getYstreamDml().getOldValues(), oldChunkValues);
+                newValues = YStreamChangeRecordEmitter.getColumnValues(tableFor, record.getYstreamDml().getNewValues(), chunkValues,
+                        connectorConfig.getModeContext().isMySql());
+                oldValues = YStreamChangeRecordEmitter.getColumnValues(tableFor, record.getYstreamDml().getOldValues(), oldChunkValues,
+                        connectorConfig.getModeContext().isMySql());
             }
             if (!truncateTable) {
                 Set<String> columnNamesPresentInAfter = record.getYstreamDml().getNewValues().getColumns().stream()
@@ -289,7 +295,7 @@ class YStreamEventHandler {
                 .map(YstreamColumn::getColumn)
                 .map(com.sics.ystream.metadata.Column::getColumnName)
                 .collect(Collectors.joining(","));
-        String namespace = connectorConfig.getModeContext().isMySql() ? tableId.catalog() : tableId.schema();
+        String namespace = tableId.schema();
         LOGGER.error("Dispatch data change event error,record schema: {}," +
                 "table: {}," +
                 "columns in the schema: {}," +
@@ -348,7 +354,7 @@ class YStreamEventHandler {
                         partition,
                         offsetContext,
                         tableId,
-                        tableId.catalog(),
+                        "",
                         tableId.schema(),
                         ddl.getDdlText(),
                         schema,
@@ -402,7 +408,7 @@ class YStreamEventHandler {
         try (YashanDbConnection connection = new YashanDbConnection(connectorConfig.getJdbcConfig(), connectorConfig.getModeContext())) {
             connection.setAutoCommit(false);
             String tableMetadataDdl = connection.getTableMetadataDdl(tableId);
-            String namespace = connectorConfig.getModeContext().isMySql() ? tableId.catalog() : tableId.schema();
+            String namespace = tableId.schema();
             LOGGER.debug("Obtain table {}.{} ddl: {}", namespace, tableId.table(), tableMetadataDdl);
             return tableMetadataDdl;
         }

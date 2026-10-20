@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 
 import io.debezium.config.Configuration;
 import io.debezium.config.Field;
+import io.debezium.connector.yashandb.YashanDbConnectorConfig.BigIntUnsignedHandlingMode;
 import io.debezium.connector.yashandb.YashanDbConnectorConfig.IntervalHandlingMode;
 import io.debezium.connector.yashandb.YashanDbConnectorConfig.SnapshotLockingMode;
 import io.debezium.connector.yashandb.YashanDbConnectorConfig.SnapshotMode;
@@ -205,6 +206,32 @@ class YashanDbConnectorConfigTest {
     // -----------------------------------------------------------------------
     @Nested
     class ConnectorConfigTests {
+
+        @Test
+        void shouldConfigureUnsignedBigintHandling() {
+            Configuration defaults = Configuration.create().with("topic.prefix", "test").build();
+            Configuration longMode = Configuration.create()
+                    .with("topic.prefix", "test")
+                    .with("bigint.unsigned.handling.mode", "long")
+                    .build();
+            Configuration doubleMode = Configuration.create()
+                    .with("topic.prefix", "test")
+                    .with("bigint.unsigned.handling.mode", "DOUBLE")
+                    .build();
+            Configuration stringMode = Configuration.create()
+                    .with("topic.prefix", "test")
+                    .with("bigint.unsigned.handling.mode", "string")
+                    .build();
+
+            assertThat(new YashanDbConnectorConfig(defaults).getBigIntUnsignedHandlingMode())
+                    .isEqualTo(BigIntUnsignedHandlingMode.PRECISE);
+            assertThat(new YashanDbConnectorConfig(longMode).getBigIntUnsignedHandlingMode())
+                    .isEqualTo(BigIntUnsignedHandlingMode.LONG);
+            assertThat(new YashanDbConnectorConfig(doubleMode).getBigIntUnsignedHandlingMode())
+                    .isEqualTo(BigIntUnsignedHandlingMode.DOUBLE);
+            assertThat(new YashanDbConnectorConfig(stringMode).getBigIntUnsignedHandlingMode())
+                    .isEqualTo(BigIntUnsignedHandlingMode.STRING);
+        }
 
         @Test
         void shouldSelectModeFromYStreamProperty() {

@@ -97,6 +97,7 @@ Then restart Kafka Connect to load the new connector.
 |----------|-------------|---------|
 | `interval.handling.mode` | INTERVAL column representation: `string`, `numeric` | `numeric` |
 | `decimal.handling.mode` | DECIMAL column representation: `precise`, `double`, `string` | `precise` |
+| `bigint.unsigned.handling.mode` | MySQL-mode `BIGINT UNSIGNED` representation: `precise` (scale-zero Decimal), `long` (signed INT64), `double` (FLOAT64), `string` (decimal text) | `precise` |
 | `legacy.decimal.handling.strategy` | Legacy decimal handling strategy | - |
 
 #### YStream MySQL mode
@@ -110,6 +111,14 @@ The connector uses native YashanDB syntax by default. To connect to a MySQL-comp
 ```
 
 This setting selects the YStream client mode, the MySQL dialect for connector-generated SQL and table identifiers, and the JDBC `compatVector=mysql` connection property. The connector does not inspect `COMPAT_VECTOR` to select a mode. Use a separate topic prefix, offsets, and schema history when changing the mode of an existing connector.
+
+In MySQL mode, a database name is the `schema` component of the connector's table identifier, so a table is identified as `database.table`. Use `schema.include.list` and `schema.exclude.list` to filter databases. The existing `database.include.list` and `database.exclude.list` settings are also accepted in MySQL mode and applied to the schema component for compatibility. When both forms are configured, the schema setting takes precedence.
+
+In MySQL mode, integer columns declared `UNSIGNED` or `ZEROFILL` use wider Kafka Connect types so their full range is retained. `TINYINT UNSIGNED` maps to `INT16`, `SMALLINT UNSIGNED` and `MEDIUMINT UNSIGNED` to `INT32`, and `INT UNSIGNED` to `INT64`. `BIGINT UNSIGNED` maps to a scale-zero Connect `Decimal` by default, including values above Java's signed `long` maximum. Set `bigint.unsigned.handling.mode=long` for a signed `INT64` schema; values above `Long.MAX_VALUE` then cannot be represented correctly. Set it to `double` for an approximate `FLOAT64` value, or `string` for the exact unsigned decimal value as text. Signed values returned by YStream are restored according to the source integer width; already-positive JDBC snapshot values are preserved. This mapping is specific to MySQL mode and does not depend on `decimal.handling.mode`.
+
+MySQL-mode `TIME` columns use a Kafka Connect `STRING` schema in snapshots and streaming. This preserves durations beyond 24 hours, including values such as `838:59:59` and negative values. Existing consumers of these columns need to accept the string schema.
+
+MySQL mode does not yet support parsing incremental DDL events. Keep table definitions stable while streaming in this mode.
 
 Additional YStream builder options use the same `ystream.additional.properties.` prefix, with one connector property per option. For example, `"ystream.additional.properties.enable.sequence.next.val": "true"` maps to the YStream `setEnableSequenceNextVal(true)` builder call. Dedicated connector settings take precedence when they configure the same YStream option. Replace the former comma-separated `ystream.additional.properties` setting with individually prefixed properties when upgrading.
 
