@@ -359,7 +359,7 @@ public class YashanDbConnectorConfig extends HistorizedRelationalDatabaseConnect
 
     public YashanDbConnectorConfig(Configuration config, YashanDbModeContext modeContext) {
         super(
-                YashanDbConnector.class, config,
+                YashanDbConnector.class, normalizeMySqlFilters(config, modeContext),
                 new SystemTablesPredicate(),
                 x -> x.schema() + "." + x.table(),
                 false,
@@ -415,6 +415,26 @@ public class YashanDbConnectorConfig extends HistorizedRelationalDatabaseConnect
      */
     public String getDatabaseName() {
         return databaseName;
+    }
+
+    private static Configuration normalizeMySqlFilters(Configuration config, YashanDbModeContext modeContext) {
+        if (!modeContext.isMySql()) {
+            return config;
+        }
+        Configuration.Builder builder = config.edit()
+                .without(DATABASE_INCLUDE_LIST.name())
+                .without(DATABASE_EXCLUDE_LIST.name());
+        // MySQL databases occupy the schema component of YashanDB table identifiers.
+        // An explicit schema filter takes precedence over the compatibility aliases.
+        if (!config.hasKey(SCHEMA_INCLUDE_LIST) && !config.hasKey(SCHEMA_EXCLUDE_LIST)) {
+            if (config.hasKey(DATABASE_INCLUDE_LIST)) {
+                builder.with(SCHEMA_INCLUDE_LIST, config.getString(DATABASE_INCLUDE_LIST));
+            }
+            if (config.hasKey(DATABASE_EXCLUDE_LIST)) {
+                builder.with(SCHEMA_EXCLUDE_LIST, config.getString(DATABASE_EXCLUDE_LIST));
+            }
+        }
+        return builder.build();
     }
 
     public YashanDbModeContext getModeContext() {

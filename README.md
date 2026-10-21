@@ -118,7 +118,9 @@ In MySQL mode, integer columns declared `UNSIGNED` or `ZEROFILL` use wider Kafka
 
 MySQL-mode `TIME` columns use a Kafka Connect `STRING` schema in snapshots and streaming. This preserves durations beyond 24 hours, including values such as `838:59:59` and negative values. Existing consumers of these columns need to accept the string schema.
 
-MySQL mode does not yet support parsing incremental DDL events. Keep table definitions stable while streaming in this mode.
+MySQL mode parses incremental DDL with the Debezium MySQL ANTLR grammar. Supported changes include `CREATE TABLE`, `ALTER TABLE` (adding, modifying, renaming, reordering, and dropping columns, and changing primary keys), `RENAME TABLE`, `DROP TABLE`, and `TRUNCATE TABLE`. Parsed table definitions use the same `database.table` identifiers as snapshots and streaming, and are recorded in schema history. `TRUNCATE TABLE` uses the existing truncate event handling and `skipped.operations` setting.
+
+The MySQL grammar files are copied from Debezium's `debezium-ddl-parser/src/main/antlr4/io/debezium/ddl/parser/mysql/legacy/` (`MySqlLexer.g4` and `MySqlParser.g4`), with their original license notices preserved. The connector generates them under its own package to coexist with the native YashanDB parser.
 
 Additional YStream builder options use the same `ystream.additional.properties.` prefix, with one connector property per option. For example, `"ystream.additional.properties.enable.sequence.next.val": "true"` maps to the YStream `setEnableSequenceNextVal(true)` builder call. Dedicated connector settings take precedence when they configure the same YStream option. Replace the former comma-separated `ystream.additional.properties` setting with individually prefixed properties when upgrading.
 
