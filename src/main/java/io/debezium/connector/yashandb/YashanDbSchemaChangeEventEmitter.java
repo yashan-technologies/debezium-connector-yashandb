@@ -7,14 +7,16 @@ package io.debezium.connector.yashandb;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.debezium.connector.yashandb.antlr.YashanDbDdlParser;
+import io.debezium.antlr.AntlrDdlParser;
 import io.debezium.connector.yashandb.ystream.TruncateReceiver;
 import io.debezium.pipeline.spi.SchemaChangeEventEmitter;
 import io.debezium.relational.Table;
@@ -25,6 +27,7 @@ import io.debezium.relational.ddl.DdlParserListener;
 import io.debezium.relational.ddl.DdlParserListener.TableAlteredEvent;
 import io.debezium.relational.ddl.DdlParserListener.TableCreatedEvent;
 import io.debezium.relational.ddl.DdlParserListener.TableDroppedEvent;
+import io.debezium.relational.ddl.DdlParserListener.TableEvent;
 import io.debezium.relational.ddl.DdlParserListener.TableTruncatedEvent;
 import io.debezium.schema.SchemaChangeEvent;
 import io.debezium.text.MultipleParsingExceptions;
@@ -86,18 +89,17 @@ public class YashanDbSchemaChangeEventEmitter implements SchemaChangeEventEmitte
 
     @Override
     public void emitSchemaChangeEvent(Receiver receiver) throws InterruptedException {
-        // Cache a copy of the table's schema prior to parsing the DDL.
-        // This is needed in the event that the parsed DDL is a drop table
-        // todo: verify whether this is actually necessary in the emitted SchemaChangeEvent
-        final Table tableBefore = schema.tableFor(tableId);
+        // The parser removes dropped tables before it returns their events.
+        final Map<TableId, Table> tablesBefore = new HashMap<>();
+        schema.getTables().tableIds().forEach(id -> tablesBefore.put(id, schema.getTables().forTable(id)));
 
-        final YashanDbDdlParser parser = schema.getDdlParser();
-        final DdlChanges ddlChanges = parser.getAndResetDdlChanges();
+        final AntlrDdlParser<?, ?> parser = schema.getDdlParser();
+        final DdlChanges ddlChanges;
         try {
-            ddlChanges.reset();
+            parser.getAndResetDdlChanges();
             parser.setCurrentDatabase(sourceDatabaseName);
             parser.setCurrentSchema(objectOwner);
-            parser.parse(ddlText, schema.getTables());
+            ddlChanges = parser.parse(ddlText, schema.getTables());
         }
         catch (ParsingException | MultipleParsingExceptions e) {
             if (schema.skipUnparseableDdlStatements()) {
@@ -110,16 +112,27 @@ public class YashanDbSchemaChangeEventEmitter implements SchemaChangeEventEmitte
                         schema.getTables().removeTable(tableId);
                     }
                 }
+                return;
             }
             else {
                 throw e;
             }
         }
 
-        if (!ddlChanges.isEmpty() && (filters.isIncluded(tableId) || !schema.storeOnlyCapturedTables())) {
+        if (!ddlChanges.isEmpty()) {
             List<SchemaChangeEvent> changeEvents = new ArrayList<>();
             ddlChanges.getEventsByDatabase((String dbName, List<DdlParserListener.Event> events) -> {
                 events.forEach(event -> {
+                    if (!(event instanceof TableEvent)) {
+                        return;
+                    }
+                    TableId eventTableId = ((TableEvent) event).tableId();
+                    if (schema.storeOnlyCapturedTables() && !filters.isIncluded(eventTableId)
+                            && !(event instanceof TableAlteredEvent
+                                    && ((TableAlteredEvent) event).previousTableId() != null
+                                    && filters.isIncluded(((TableAlteredEvent) event).previousTableId()))) {
+                        return;
+                    }
                     switch (event.type()) {
                         case CREATE_TABLE:
                             changeEvents.add(createTableEvent(partition, (TableCreatedEvent) event));
@@ -128,7 +141,10 @@ public class YashanDbSchemaChangeEventEmitter implements SchemaChangeEventEmitte
                             changeEvents.add(alterTableEvent(partition, (TableAlteredEvent) event));
                             break;
                         case DROP_TABLE:
-                            changeEvents.add(dropTableEvent(partition, tableBefore, (TableDroppedEvent) event));
+                            Table tableBefore = tablesBefore.get(eventTableId);
+                            if (tableBefore != null) {
+                                changeEvents.add(dropTableEvent(partition, tableBefore, (TableDroppedEvent) event));
+                            }
                             break;
                         case TRUNCATE_TABLE:
                             changeEvents.add(truncateTableEvent(partition, (TableTruncatedEvent) event));
@@ -155,64 +171,71 @@ public class YashanDbSchemaChangeEventEmitter implements SchemaChangeEventEmitte
     }
 
     private SchemaChangeEvent createTableEvent(YashanDbPartition partition, TableCreatedEvent event) {
-        offsetContext.tableEvent(tableId, changeTime);
+        TableId eventTableId = event.tableId();
+        offsetContext.tableEvent(eventTableId, changeTime);
         return SchemaChangeEvent.ofCreate(
                 partition,
                 offsetContext,
-                tableId.catalog(),
-                tableId.schema(),
+                eventTableId.catalog(),
+                eventTableId.schema(),
                 event.statement(),
-                schema.tableFor(event.tableId()),
+                schema.getTables().forTable(eventTableId),
                 false);
     }
 
     private SchemaChangeEvent alterTableEvent(YashanDbPartition partition, TableAlteredEvent event) {
+        TableId eventTableId = event.tableId();
+        TableId previousTableId = event.previousTableId();
         final Set<TableId> tableIds = new LinkedHashSet<>();
-        tableIds.add(tableId);
-        tableIds.add(event.tableId());
+        if (previousTableId != null) {
+            tableIds.add(previousTableId);
+        }
+        tableIds.add(eventTableId);
 
         offsetContext.tableEvent(tableIds, changeTime);
-        if (tableId == null) {
+        if (previousTableId == null || previousTableId.equals(eventTableId)) {
             return SchemaChangeEvent.ofAlter(
                     partition,
                     offsetContext,
-                    tableId.catalog(),
-                    tableId.schema(),
+                    eventTableId.catalog(),
+                    eventTableId.schema(),
                     event.statement(),
-                    schema.tableFor(event.tableId()));
+                    schema.getTables().forTable(eventTableId));
         }
         else {
             return SchemaChangeEvent.ofRename(
                     partition,
                     offsetContext,
-                    tableId.catalog(),
-                    tableId.schema(),
+                    eventTableId.catalog(),
+                    eventTableId.schema(),
                     event.statement(),
-                    schema.tableFor(event.tableId()),
-                    tableId);
+                    schema.getTables().forTable(eventTableId),
+                    previousTableId);
         }
     }
 
     private SchemaChangeEvent dropTableEvent(YashanDbPartition partition, Table tableSchemaBeforeDrop, TableDroppedEvent event) {
-        offsetContext.tableEvent(tableId, changeTime);
+        TableId eventTableId = event.tableId();
+        offsetContext.tableEvent(eventTableId, changeTime);
         return SchemaChangeEvent.ofDrop(
                 partition,
                 offsetContext,
-                tableId.catalog(),
-                tableId.schema(),
+                eventTableId.catalog(),
+                eventTableId.schema(),
                 event.statement(),
                 tableSchemaBeforeDrop);
     }
 
     private SchemaChangeEvent truncateTableEvent(YashanDbPartition partition, TableTruncatedEvent event) {
-        offsetContext.tableEvent(tableId, changeTime);
+        TableId eventTableId = event.tableId();
+        offsetContext.tableEvent(eventTableId, changeTime);
         return SchemaChangeEvent.ofTruncate(
                 partition,
                 offsetContext,
-                tableId.catalog(),
-                tableId.schema(),
+                eventTableId.catalog(),
+                eventTableId.schema(),
                 event.statement(),
-                schema.tableFor(event.tableId()));
+                schema.getTables().forTable(eventTableId));
     }
 
 }

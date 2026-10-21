@@ -344,11 +344,15 @@ class YStreamEventHandler {
         LOGGER.debug("Processing DDL event {}", ddl.getDdlText());
 
         TableId tableId = getTableId(ddl);
+        // MySQL DDL may affect multiple tables or rename a captured table to an excluded name.
+        // Let the emitter filter the parsed table events when the LCR table alone is excluded.
+        TableId dispatchTableId = connectorConfig.getModeContext().isMySql()
+                && !connectorConfig.getTableFilters().dataCollectionFilter().isIncluded(tableId) ? null : tableId;
 
         dispatcher.dispatchSchemaChangeEvent(
                 partition,
                 offsetContext,
-                tableId,
+                dispatchTableId,
                 new YashanDbSchemaChangeEventEmitter(
                         connectorConfig,
                         partition,
