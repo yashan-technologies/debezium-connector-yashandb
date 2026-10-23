@@ -14,6 +14,8 @@ import java.util.List;
 import org.apache.kafka.common.config.ConfigDef;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import io.debezium.config.Configuration;
 import io.debezium.config.Field;
@@ -265,6 +267,41 @@ class YashanDbConnectorConfigTest {
             assertThat(config.getYstreamAdditionalProperties()).containsOnlyKeys(
                     "mysql.mode", "enable.sequence.next.val", "host");
             assertThat(config.getYstreamAdditionalProperties().get("host")).isEqualTo("value=1,2");
+        }
+
+        @Test
+        void shouldLeaveSnapshotScnUnsetByDefault() {
+            Configuration configuration = Configuration.create().with("topic.prefix", "test").build();
+
+            assertThat(new YashanDbConnectorConfig(configuration).getSnapshotScn()).isEmpty();
+            assertThat(configuration.validate(Field.setOf(YashanDbConnectorConfig.SNAPSHOT_SCN))
+                    .get("snapshot.scn").errorMessages()).isEmpty();
+            assertThat(YashanDbConnectorConfig.configDef().configKeys()).containsKey("snapshot.scn");
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = { "1", "123456789", "9223372036854775807" })
+        void shouldAcceptConfiguredSnapshotScn(String scn) {
+            Configuration configuration = Configuration.create()
+                    .with("topic.prefix", "test")
+                    .with(YashanDbConnectorConfig.SNAPSHOT_SCN, scn)
+                    .build();
+
+            assertThat(new YashanDbConnectorConfig(configuration).getSnapshotScn()).contains(Scn.valueOf(scn));
+            assertThat(configuration.validate(Field.setOf(YashanDbConnectorConfig.SNAPSHOT_SCN))
+                    .get("snapshot.scn").errorMessages()).isEmpty();
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = { "0", "-1", "", " ", "abc", "1.5", "9223372036854775808" })
+        void shouldRejectInvalidSnapshotScn(String scn) {
+            Configuration configuration = Configuration.create()
+                    .with("topic.prefix", "test")
+                    .with(YashanDbConnectorConfig.SNAPSHOT_SCN, scn)
+                    .build();
+
+            assertThat(new YashanDbConnector().validateAllFields(configuration)
+                    .get("snapshot.scn").errorMessages()).isNotEmpty();
         }
 
         @Test

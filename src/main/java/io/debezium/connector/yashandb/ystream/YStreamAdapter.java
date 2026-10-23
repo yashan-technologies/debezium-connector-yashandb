@@ -209,25 +209,32 @@ public class YStreamAdapter extends AbstractStreamingAdapter {
                                                          YashanDbConnection connection)
             throws SQLException {
 
-        final Optional<Scn> latestTableDdlScn = getLatestTableDdlScn(ctx, connection);
+        final Optional<Scn> configuredScn = connectorConfig.getSnapshotScn();
+        final Scn snapshotScn;
+        if (configuredScn.isPresent()) {
+            snapshotScn = configuredScn.get();
+        }
+        else {
+            final Optional<Scn> latestTableDdlScn = getLatestTableDdlScn(ctx, connection);
 
-        // The timestamp of this SCN must be later than the timestamp of the latest DDL change of any captured table.
-        Scn currentScn;
-        do {
-            currentScn = connection.getCurrentScn();
-        } while (areSameTimestamp(latestTableDdlScn.orElse(null), currentScn, connection));
+            // The snapshot timestamp must be later than the latest DDL change of any captured table.
+            Scn currentScn;
+            do {
+                currentScn = connection.getCurrentScn();
+            } while (areSameTimestamp(latestTableDdlScn.orElse(null), currentScn, connection));
 
-        // The recoverPosition here is used as the starting point for the YStream service.
-        // It must be set to currentScn + 1 to ensure no data loss and no data duplication.
-        Position recoverPosition = new Position(
-                new SystemChangeNumber(currentScn.add(Scn.valueOf(1)).longValue()), new LogPosition());
+            snapshotScn = currentScn;
+        }
+        // Start streaming at the next SCN to avoid replaying changes already included in the snapshot.
+        final Scn streamingScn = snapshotScn.add(Scn.valueOf(1));
+        Position recoverPosition = new Position(new SystemChangeNumber(streamingScn.longValue()), new LogPosition());
 
-        LOGGER.info("\tCurrent SCN resolved as {}", currentScn);
+        LOGGER.info("Snapshot SCN resolved as {}, streaming starts at SCN {}", snapshotScn, streamingScn);
 
         return YashanDbOffsetContext.create()
                 .logicalName(connectorConfig)
                 .recoverPosition(recoverPosition)
-                .snapshotScn(currentScn)
+                .snapshotScn(snapshotScn)
                 .snapshotPendingTransactions(Collections.emptyMap())
                 .transactionContext(new TransactionContext())
                 .incrementalSnapshotContext(new SignalBasedIncrementalSnapshotContext<>(false))

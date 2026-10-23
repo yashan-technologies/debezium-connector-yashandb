@@ -79,7 +79,6 @@ public class YashanDbConnectorConfig extends HistorizedRelationalDatabaseConnect
             .withWidth(Width.MEDIUM)
             .withImportance(Importance.HIGH)
             .withGroup(Field.createGroupEntry(Field.Group.CONNECTION))
-            // .withValidation(YashanDbConnectorConfig::validateOutServerName)
             .withDescription("Name of the YStream Out server to connect to.");
 
     public static final Field SNAPSHOT_MODE = Field.create("snapshot.mode")
@@ -95,6 +94,17 @@ public class YashanDbConnectorConfig extends HistorizedRelationalDatabaseConnect
                     + "'initial_only': The connector performs a snapshot as it does for the 'initial' option, but after the connector completes the snapshot, it stops, and does not stream changes from the redo logs.; "
                     + "'schema_only': If the connector does not detect any offsets for the logical server name, it runs a snapshot that captures only the schema (table structures), but not any table data. After the snapshot completes, the connector begins to stream changes from the redo logs.; "
                     + "'schema_only_recovery': The connector performs a snapshot that captures only the database schema history. The connector then transitions to streaming from the redo logs. Use this setting to restore a corrupted or lost database schema history topic. Do not use if the database schema was modified after the connector stopped.");
+
+    public static final Field SNAPSHOT_SCN = Field.create("snapshot.scn")
+            .withDisplayName("Snapshot SCN")
+            .withType(Type.LONG)
+            .withWidth(Width.LONG)
+            .withImportance(Importance.HIGH)
+            .withValidation(Field::isPositiveLong)
+            .withGroup(Field.createGroupEntry(Field.Group.CONNECTOR_SNAPSHOT))
+            .withDescription("Optional positive SCN for startup snapshot queries. YStream starts streaming at this SCN plus one. "
+                    + "If unset, the connector determines the snapshot SCN automatically and starts streaming at the next SCN. "
+                    + "Does not override offsets when resuming streaming.");
 
     public static final Field SNAPSHOT_LOCKING_MODE = Field.create("snapshot.locking.mode")
             .withDisplayName("Snapshot locking mode")
@@ -288,7 +298,7 @@ public class YashanDbConnectorConfig extends HistorizedRelationalDatabaseConnect
                     YSTREAM_SERVER_NAME,
                     SNAPSHOT_MODE,
                     URL)
-            .group(Field.Group.CONNECTOR_SNAPSHOT, SNAPSHOT_MODE, SNAPSHOT_ENHANCEMENT_TOKEN, SNAPSHOT_LOCKING_MODE, SNAPSHOT_DATABASE_ERRORS_MAX_RETRIES)
+            .group(Field.Group.CONNECTOR_SNAPSHOT, SNAPSHOT_MODE, SNAPSHOT_SCN, SNAPSHOT_ENHANCEMENT_TOKEN, SNAPSHOT_LOCKING_MODE, SNAPSHOT_DATABASE_ERRORS_MAX_RETRIES)
             .group(Field.Group.ADVANCED, QUERY_FETCH_SIZE)
             .group(Field.Group.CONNECTOR, INTERVAL_HANDLING_MODE, UNAVAILABLE_VALUE_PLACEHOLDER, BINARY_HANDLING_MODE, SCHEMA_NAME_ADJUSTMENT_MODE,
                     LEGACY_DECIMAL_HANDLING_STRATEGY, BIGINT_UNSIGNED_HANDLING_MODE)
@@ -322,6 +332,7 @@ public class YashanDbConnectorConfig extends HistorizedRelationalDatabaseConnect
     private final String databaseName;
     private final IntervalHandlingMode intervalHandlingMode;
     private final SnapshotMode snapshotMode;
+    private final Scn snapshotScn;
 
     private final String snapshotEnhancementToken;
     private final SnapshotLockingMode snapshotLockingMode;
@@ -371,6 +382,8 @@ public class YashanDbConnectorConfig extends HistorizedRelationalDatabaseConnect
         this.databaseName = modeContext.isMySql() ? config.getString(DATABASE_NAME) : toUpperCase(config.getString(DATABASE_NAME));
         this.intervalHandlingMode = IntervalHandlingMode.parse(config.getString(INTERVAL_HANDLING_MODE));
         this.snapshotMode = SnapshotMode.parse(config.getString(SNAPSHOT_MODE));
+        String snapshotScnValue = config.getString(SNAPSHOT_SCN);
+        this.snapshotScn = snapshotScnValue == null ? null : Scn.valueOf(snapshotScnValue);
         this.snapshotEnhancementToken = config.getString(SNAPSHOT_ENHANCEMENT_TOKEN);
         this.snapshotLockingMode = SnapshotLockingMode.parse(config.getString(SNAPSHOT_LOCKING_MODE), SNAPSHOT_LOCKING_MODE.defaultValueAsString());
         this.lobEnabled = config.getBoolean(LOB_ENABLED);
@@ -479,6 +492,15 @@ public class YashanDbConnectorConfig extends HistorizedRelationalDatabaseConnect
      */
     public SnapshotMode getSnapshotMode() {
         return snapshotMode;
+    }
+
+    /**
+     * Returns the configured SCN for startup snapshots. Streaming starts at the next SCN.
+     *
+     * @return the configured SCN, or empty to determine the snapshot SCN automatically
+     */
+    public Optional<Scn> getSnapshotScn() {
+        return Optional.ofNullable(snapshotScn);
     }
 
     /**

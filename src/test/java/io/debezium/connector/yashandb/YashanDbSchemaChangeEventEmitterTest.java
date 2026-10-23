@@ -20,6 +20,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.kafka.connect.data.SchemaBuilder;
 import org.apache.kafka.connect.data.Struct;
@@ -87,6 +88,40 @@ class YashanDbSchemaChangeEventEmitterTest {
         assertThat(schema.getTables().forTable(renamedId)).isNull();
         verify(history, times(4)).record(any(), any(), isNull(), eq("shop"), any(), any(TableChanges.class), any());
         schema.close();
+    }
+
+    @Test
+    void shouldUseEmitterTableIdForTruncateEventOffset() throws InterruptedException {
+        YashanDbConnectorConfig config = spy(new YashanDbConnectorConfig(TestHelper.defaultConfig()
+                .with("ystream.additional.properties.mysql.mode", "true").build()));
+        try (YashanDbDatabaseSchema schema = createSchema(config, mock(SchemaHistory.class))) {
+            YashanDbPartition partition = new YashanDbPartition("server", "shop");
+            TableId tableId = new TableId(null, "shop", "orders");
+            emit(config, partition, offset(), tableId, "CREATE TABLE orders (id INT PRIMARY KEY)", schema,
+                    schema::applySchemaChange);
+
+            YashanDbOffsetContext offset = offset();
+            AtomicBoolean truncateReceived = new AtomicBoolean();
+            YashanDbSchemaChangeEventEmitter emitter = new YashanDbSchemaChangeEventEmitter(
+                    config,
+                    partition,
+                    offset,
+                    tableId,
+                    "",
+                    tableId.schema(),
+                    "TRUNCATE TABLE orders",
+                    schema,
+                    Instant.now(),
+                    mock(YashanDbStreamingChangeEventSourceMetrics.class),
+                    () -> truncateReceived.set(true));
+
+            emitter.emitSchemaChangeEvent(event -> {
+                throw new AssertionError("Truncate event should be delivered to the truncate receiver");
+            });
+
+            assertThat(truncateReceived).isTrue();
+            verify(offset).tableEvent(eq(tableId), any(Instant.class));
+        }
     }
 
     @Test

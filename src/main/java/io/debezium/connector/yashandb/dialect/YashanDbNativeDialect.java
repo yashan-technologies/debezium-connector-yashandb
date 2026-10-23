@@ -6,10 +6,24 @@
 package io.debezium.connector.yashandb.dialect;
 
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.ToIntFunction;
+import java.util.function.UnaryOperator;
 
+import io.debezium.antlr.AntlrDdlParser;
+import io.debezium.connector.yashandb.YashanDbValueConverters;
+import io.debezium.connector.yashandb.antlr.YashanDbDdlParser;
+import io.debezium.jdbc.JdbcConnection;
+import io.debezium.relational.Column;
+import io.debezium.relational.ColumnEditor;
 import io.debezium.relational.TableId;
+import io.debezium.relational.Tables.ColumnNameFilter;
+import io.debezium.relational.Tables.TableFilter;
 
 /** Existing YashanDB SQL behavior. */
 public final class YashanDbNativeDialect implements YashanDbDialect {
@@ -26,17 +40,44 @@ public final class YashanDbNativeDialect implements YashanDbDialect {
 
     @Override
     public TableId tableId(String database, String schema, String table) {
-        return new TableId("", schema, table);
+        return new TableId(database, schema, table);
     }
 
     @Override
     public String qualifiedTableName(TableId tableId) {
-        return new TableId(null, tableId.schema(), tableId.table()).toDoubleQuotedString();
+        return new TableId(tableId.catalog(), tableId.schema(), tableId.table()).toDoubleQuotedString();
+    }
+
+    @Override
+    public AntlrDdlParser<?, ?> createDdlParser(boolean includeComments, YashanDbValueConverters valueConverters, TableFilter tableFilter) {
+        return new YashanDbDdlParser(true, false, includeComments, valueConverters, tableFilter);
     }
 
     @Override
     public String tableIdsQuery() {
         return "select owner, table_name from all_tables ";
+    }
+
+    @Override
+    public List<TableMetadata> readTables(JdbcConnection connection, String catalogName, String schemaName,
+                                          JdbcMetadataReader<ResultSet> jdbcReader, UnaryOperator<String> catalogResolver)
+            throws SQLException {
+        List<TableMetadata> tables = new ArrayList<>();
+        try (ResultSet resultSet = jdbcReader.read()) {
+            while (resultSet.next()) {
+                TableId id = tableId(catalogResolver.apply(resultSet.getString(1)), resultSet.getString(2), resultSet.getString(3));
+                tables.add(new TableMetadata(id, resultSet.getString(4)));
+            }
+        }
+        return tables;
+    }
+
+    @Override
+    public Map<TableId, List<Column>> readColumns(JdbcConnection connection, TableId tableId, ColumnNameFilter columnFilter,
+                                                  UnaryOperator<ColumnEditor> columnOverride, ToIntFunction<String> nativeTypeResolver,
+                                                  JdbcMetadataReader<Map<TableId, List<Column>>> jdbcReader)
+            throws SQLException {
+        return jdbcReader.read();
     }
 
     @Override
