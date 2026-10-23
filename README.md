@@ -87,9 +87,27 @@ Then restart Kafka Connect to load the new connector.
 | Property | Description | Default |
 |----------|-------------|---------|
 | `snapshot.mode` | `initial`, `initial_only`, `schema_only`, `schema_only_recovery`, `always` | `initial` |
+| `snapshot.scn` | Positive SCN for startup snapshot queries; YStream starts at this SCN plus one | Automatically determined |
 | `snapshot.locking.mode` | `shared`, `none` | `shared` |
 | `snapshot.enhance.predicate.scn` | Token for snapshot predicate enhancement | - |
 | `snapshot.database.errors.max.retries` | Max retries for snapshot database errors | `0` |
+
+To take a full snapshot at a specific SCN and start streaming from the next SCN, configure:
+
+```json
+{
+  "snapshot.mode": "initial",
+  "snapshot.scn": "123456"
+}
+```
+
+The connector reads each table with `AS OF SCN 123456` and sets the YStream recovery position to `123457`. The value must be between `1` and `9223372036854775807`. If `snapshot.scn` is omitted, the connector selects the current snapshot SCN and starts streaming at the next SCN, as before.
+
+This setting applies when a startup snapshot determines a new offset. With `snapshot.mode=initial`, an existing completed snapshot resumes from the saved streaming offset; changing `snapshot.scn` does not rewind it. Schema recovery and on-demand blocking snapshots continue to use their existing offsets. Use a fresh connector offset and schema history to start a new capture at the configured SCN.
+
+The database must retain the flashback data for the selected SCN and YStream logs from the next SCN, and the captured table structures must be compatible with that point in time. For custom snapshot SELECT overrides, use `snapshot.enhance.predicate.scn` to insert the same `AS OF SCN` clause, or explicitly anchor the SELECT to the configured SCN.
+
+For Chinese configuration guidance, see [指定全量快照和增量起始 SCN](docs/snapshot-scn.md).
 
 #### Data Types
 
@@ -121,6 +139,8 @@ MySQL-mode `TIME` columns use a Kafka Connect `STRING` schema in snapshots and s
 MySQL mode parses incremental DDL with the Debezium MySQL ANTLR grammar. Supported changes include `CREATE TABLE`, `ALTER TABLE` (adding, modifying, renaming, reordering, and dropping columns, and changing primary keys), `RENAME TABLE`, `DROP TABLE`, and `TRUNCATE TABLE`. Parsed table definitions use the same `database.table` identifiers as snapshots and streaming, and are recorded in schema history. `TRUNCATE TABLE` uses the existing truncate event handling and `skipped.operations` setting.
 
 The MySQL grammar files are copied from Debezium's `debezium-ddl-parser/src/main/antlr4/io/debezium/ddl/parser/mysql/legacy/` (`MySqlLexer.g4` and `MySqlParser.g4`), with their original license notices preserved. The connector generates them under its own package to coexist with the native YashanDB parser.
+
+The container-backed MySQL-mode integration test is documented in [YashanDB MySQL mode integration](docs/yashandb-mysql-integration.md). Run it with `-Pmysql-integration-tests` so the YashanDB image is initialized with `--mode mysql`.
 
 Additional YStream builder options use the same `ystream.additional.properties.` prefix, with one connector property per option. For example, `"ystream.additional.properties.enable.sequence.next.val": "true"` maps to the YStream `setEnableSequenceNextVal(true)` builder call. Dedicated connector settings take precedence when they configure the same YStream option. Replace the former comma-separated `ystream.additional.properties` setting with individually prefixed properties when upgrading.
 

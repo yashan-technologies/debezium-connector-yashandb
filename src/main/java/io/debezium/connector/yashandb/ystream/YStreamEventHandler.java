@@ -402,7 +402,7 @@ class YStreamEventHandler {
     }
 
     private TableId toTableId(String schemaName, String tableName) {
-        return connectorConfig.getModeContext().dialect().tableId(null, schemaName, tableName);
+        return connectorConfig.getModeContext().dialect().tableId("", schemaName, tableName);
     }
 
     private String getTableMetadataDdl(TableId tableId) {

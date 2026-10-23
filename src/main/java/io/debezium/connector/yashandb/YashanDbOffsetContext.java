@@ -42,9 +42,8 @@ public class YashanDbOffsetContext extends CommonOffsetContext<SourceInfo> {
     private final IncrementalSnapshotContext<TableId> incrementalSnapshotContext;
 
     /**
-     * SCN that was used for the initial consistent snapshot. This value is refreshed with each event.
-     * Initially, this value differs from sourceInfo.getLcrPosition by 1 to ensure data consistency
-     * between full snapshot and incremental (CDC) data.
+     * SCN that was used for the initial consistent snapshot. This value precedes the initial
+     * streaming position by 1 for both automatically selected and explicitly configured snapshot SCNs.
      * <p>
      * We keep track of this field because it's a cutoff for emitting DDL statements,
      * in case we start mining _before_ the snapshot SCN to cover transactions that were

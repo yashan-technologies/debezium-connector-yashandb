@@ -21,8 +21,6 @@ import com.yashandb.jdbc.YasTypes;
 import io.debezium.antlr.AntlrDdlParser;
 import io.debezium.config.CommonConnectorConfig;
 import io.debezium.connector.common.CdcSourceTaskContext;
-import io.debezium.connector.yashandb.antlr.YashanDbDdlParser;
-import io.debezium.connector.yashandb.antlr.YashanDbMySqlDdlParser;
 import io.debezium.relational.Column;
 import io.debezium.relational.CustomConverterRegistry;
 import io.debezium.relational.DefaultValueConverter;
@@ -80,15 +78,9 @@ public class YashanDbDatabaseSchema extends HistorizedRelationalDatabaseSchema {
                 connectorConfig.getKeyMapper(), taskContext);
 
         this.valueConverters = valueConverters;
-        this.ddlParser = connectorConfig.getModeContext().isMySql()
-                ? new YashanDbMySqlDdlParser(true, connectorConfig.isSchemaCommentsHistoryEnabled(),
-                        connectorConfig.getTableFilters().dataCollectionFilter())
-                : new YashanDbDdlParser(
-                        true,
-                        false,
-                        connectorConfig.isSchemaCommentsHistoryEnabled(),
-                        valueConverters,
-                        connectorConfig.getTableFilters().dataCollectionFilter());
+        this.ddlParser = connectorConfig.getModeContext().dialect().createDdlParser(
+                connectorConfig.isSchemaCommentsHistoryEnabled(), valueConverters,
+                connectorConfig.getTableFilters().dataCollectionFilter());
     }
 
     /**
