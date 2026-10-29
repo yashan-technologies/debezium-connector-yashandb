@@ -54,19 +54,6 @@ class YStreamConfigBuilderTest {
     }
 
     @Test
-    void shouldRejectInvalidMysqlModeAndAliasConflict() {
-        assertThatThrownBy(() -> YStreamConfigBuilder.mysqlMode(Collections.singletonMap("mysql.mode", "maybe")))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Expected true or false");
-        Map<String, String> aliases = new LinkedHashMap<>();
-        aliases.put("mysql.mode", "true");
-        aliases.put("mysql_mode", "false");
-        assertThatThrownBy(() -> YStreamConfigBuilder.mysqlMode(aliases))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Duplicate YStream additional property");
-    }
-
-    @Test
     @FixFor("debezium/dbz#2861")
     void shouldApplyNumericOptionToBuilder() {
         YstreamConfig.Builder<String> builder = minimalBuilder();

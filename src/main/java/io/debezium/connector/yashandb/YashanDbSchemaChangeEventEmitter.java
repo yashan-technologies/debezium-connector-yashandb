@@ -169,7 +169,6 @@ public class YashanDbSchemaChangeEventEmitter implements SchemaChangeEventEmitte
     }
 
     private SchemaChangeEvent createTableEvent(YashanDbPartition partition, TableCreatedEvent event) {
-        TableId eventTableId = event.tableId();
         offsetContext.tableEvent(tableId, changeTime);
         return SchemaChangeEvent.ofCreate(
                 partition,
@@ -177,29 +176,38 @@ public class YashanDbSchemaChangeEventEmitter implements SchemaChangeEventEmitte
                 tableId.catalog(),
                 tableId.schema(),
                 event.statement(),
-                schema.getTables().forTable(eventTableId),
+                schema.tableFor(event.tableId()),
                 false);
     }
 
     private SchemaChangeEvent alterTableEvent(YashanDbPartition partition, TableAlteredEvent event) {
-        TableId eventTableId = event.tableId();
         final Set<TableId> tableIds = new LinkedHashSet<>();
         tableIds.add(tableId);
-        tableIds.add(eventTableId);
+        tableIds.add(event.tableId());
 
         offsetContext.tableEvent(tableIds, changeTime);
-        return SchemaChangeEvent.ofRename(
-                partition,
-                offsetContext,
-                tableId.catalog(),
-                tableId.schema(),
-                event.statement(),
-                schema.getTables().forTable(eventTableId),
-                tableId);
+        if (tableId == null) {
+            return SchemaChangeEvent.ofAlter(
+                    partition,
+                    offsetContext,
+                    tableId.catalog(),
+                    tableId.schema(),
+                    event.statement(),
+                    schema.tableFor(event.tableId()));
+        }
+        else {
+            return SchemaChangeEvent.ofRename(
+                    partition,
+                    offsetContext,
+                    tableId.catalog(),
+                    tableId.schema(),
+                    event.statement(),
+                    schema.tableFor(event.tableId()),
+                    tableId);
+        }
     }
 
     private SchemaChangeEvent dropTableEvent(YashanDbPartition partition, Table tableSchemaBeforeDrop, TableDroppedEvent event) {
-        TableId eventTableId = event.tableId();
         offsetContext.tableEvent(tableId, changeTime);
         return SchemaChangeEvent.ofDrop(
                 partition,
@@ -211,7 +219,6 @@ public class YashanDbSchemaChangeEventEmitter implements SchemaChangeEventEmitte
     }
 
     private SchemaChangeEvent truncateTableEvent(YashanDbPartition partition, TableTruncatedEvent event) {
-        TableId eventTableId = event.tableId();
         offsetContext.tableEvent(tableId, changeTime);
         return SchemaChangeEvent.ofTruncate(
                 partition,
@@ -219,7 +226,7 @@ public class YashanDbSchemaChangeEventEmitter implements SchemaChangeEventEmitte
                 tableId.catalog(),
                 tableId.schema(),
                 event.statement(),
-                schema.tableFor(eventTableId));
+                schema.tableFor(event.tableId()));
     }
 
 }

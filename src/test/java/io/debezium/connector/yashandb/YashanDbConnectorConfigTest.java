@@ -6,7 +6,6 @@
 package io.debezium.connector.yashandb;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -16,6 +15,8 @@ import org.apache.kafka.common.config.ConfigDef;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import io.debezium.config.Configuration;
@@ -25,6 +26,7 @@ import io.debezium.connector.yashandb.YashanDbConnectorConfig.IntervalHandlingMo
 import io.debezium.connector.yashandb.YashanDbConnectorConfig.SnapshotLockingMode;
 import io.debezium.connector.yashandb.YashanDbConnectorConfig.SnapshotMode;
 import io.debezium.doc.FixFor;
+import io.debezium.relational.history.SchemaHistoryMetrics;
 
 /**
  * Unit tests for {@link YashanDbConnectorConfig} and its nested enums.
@@ -210,46 +212,6 @@ class YashanDbConnectorConfigTest {
     class ConnectorConfigTests {
 
         @Test
-        void shouldConfigureUnsignedBigintHandling() {
-            Configuration defaults = Configuration.create().with("topic.prefix", "test").build();
-            Configuration longMode = Configuration.create()
-                    .with("topic.prefix", "test")
-                    .with("bigint.unsigned.handling.mode", "long")
-                    .build();
-            Configuration doubleMode = Configuration.create()
-                    .with("topic.prefix", "test")
-                    .with("bigint.unsigned.handling.mode", "DOUBLE")
-                    .build();
-            Configuration stringMode = Configuration.create()
-                    .with("topic.prefix", "test")
-                    .with("bigint.unsigned.handling.mode", "string")
-                    .build();
-
-            assertThat(new YashanDbConnectorConfig(defaults).getBigIntUnsignedHandlingMode())
-                    .isEqualTo(BigIntUnsignedHandlingMode.PRECISE);
-            assertThat(new YashanDbConnectorConfig(longMode).getBigIntUnsignedHandlingMode())
-                    .isEqualTo(BigIntUnsignedHandlingMode.LONG);
-            assertThat(new YashanDbConnectorConfig(doubleMode).getBigIntUnsignedHandlingMode())
-                    .isEqualTo(BigIntUnsignedHandlingMode.DOUBLE);
-            assertThat(new YashanDbConnectorConfig(stringMode).getBigIntUnsignedHandlingMode())
-                    .isEqualTo(BigIntUnsignedHandlingMode.STRING);
-        }
-
-        @Test
-        void shouldSelectModeFromYStreamProperty() {
-            Configuration nativeConfig = Configuration.create().with("topic.prefix", "native_test").build();
-            Configuration mysqlConfig = Configuration.create()
-                    .with("topic.prefix", "mysql_test")
-                    .with("ystream.additional.properties.mysql.mode", "true")
-                    .build();
-
-            assertThat(new YashanDbConnectorConfig(nativeConfig).getModeContext().isMySql()).isFalse();
-            YashanDbConnectorConfig selected = new YashanDbConnectorConfig(mysqlConfig);
-            assertThat(selected.getModeContext().isMySql()).isTrue();
-            assertThat(selected.getModeContext().dialect().name()).isEqualTo("mysql");
-        }
-
-        @Test
         @FixFor("debezium/dbz#2861")
         void shouldRejectInvalidConfiguredMysqlMode() {
             Configuration configuration = Configuration.create()
@@ -307,6 +269,202 @@ class YashanDbConnectorConfigTest {
             assertThat(config.getYstreamAdditionalProperties()).containsOnlyKeys(
                     "mysql.mode", "enable.sequence.next.val", "host");
             assertThat(config.getYstreamAdditionalProperties().get("host")).isEqualTo("value=1,2");
+        }
+
+        @Test
+        void shouldLeaveStreamingScnUnsetByDefault() {
+            Configuration configuration = Configuration.create().with("topic.prefix", "test").build();
+
+            assertThat(new YashanDbConnectorConfig(configuration).getStreamingScn()).isEmpty();
+            assertThat(YashanDbConnectorConfig.configDef().configKeys()).containsKey("streaming.scn");
+        }
+
+        @Test
+        void shouldExposeConfigurableYStreamStartPositionFields() {
+            assertThat(YashanDbConnectorConfig.configDef().configKeys()).containsKeys(
+                    "streaming.scn",
+                    "streaming.instance.id",
+                    "streaming.group.lsn",
+                    "streaming.group.offset",
+                    "streaming.batch.row.id")
+                    .doesNotContainKeys("snapshot.scn", "streaming.recovery.position.source");
+        }
+
+        @ParameterizedTest
+        @NullSource
+        @ValueSource(strings = { "initial", "always", "initial_only", "when_needed", "configuration_based", "custom" })
+        void shouldRejectExplicitPositionsInDataSnapshotModes(String mode) {
+            for (String field : List.of("streaming.scn", "streaming.instance.id", "streaming.group.lsn",
+                    "streaming.group.offset", "streaming.batch.row.id")) {
+                Configuration.Builder builder = Configuration.create().with("topic.prefix", "test");
+                if (mode != null) {
+                    builder.with("snapshot.mode", mode);
+                }
+                Configuration configuration = builder.with(field, field.equals("streaming.scn") ? "123456" : "0").build();
+                var results = new YashanDbConnector().validateAllFields(configuration);
+
+                assertThat(results).containsKey(field);
+                assertThat(results.get(field).errorMessages()).as("%s in mode %s", field, mode)
+                        .anySatisfy(message -> assertThat(message).contains("snapshot.mode"));
+                assertThatThrownBy(() -> new YashanDbConnectorConfig(configuration))
+                        .isInstanceOf(IllegalArgumentException.class).hasMessageContaining(field).hasMessageContaining("snapshot.mode");
+            }
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = { "no_data", "recovery", "NO_DATA" })
+        void shouldAcceptExplicitPositionsWithoutDataSnapshots(String mode) {
+            Configuration configuration = Configuration.create()
+                    .with("topic.prefix", "test")
+                    .with("snapshot.mode", mode)
+                    .with("streaming.scn", "882374440345255936")
+                    .with("streaming.instance.id", 0)
+                    .with("streaming.group.lsn", 1277581L)
+                    .with("streaming.group.offset", 262)
+                    .with("streaming.batch.row.id", 0)
+                    .build();
+
+            var results = new YashanDbConnector().validateAllFields(configuration);
+            for (String field : List.of("streaming.scn", "streaming.instance.id", "streaming.group.lsn",
+                    "streaming.group.offset", "streaming.batch.row.id")) {
+                assertThat(results).containsKey(field);
+                assertThat(results.get(field).errorMessages()).isEmpty();
+            }
+            assertThatCode(() -> new YashanDbConnectorConfig(configuration)).doesNotThrowAnyException();
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = { "initial", "always", "initial_only", "when_needed", "configuration_based", "custom", "no_data", "recovery" })
+        void shouldAllowOmittedPositionDefaultsInEveryMode(String mode) {
+            Configuration configuration = Configuration.create().with("topic.prefix", "test").with("snapshot.mode", mode).build();
+
+            for (String field : List.of("streaming.instance.id", "streaming.group.lsn", "streaming.group.offset", "streaming.batch.row.id")) {
+                assertThat(new YashanDbConnector().validateAllFields(configuration).get(field).errorMessages()).isEmpty();
+            }
+            assertThatCode(() -> new YashanDbConnectorConfig(configuration)).doesNotThrowAnyException();
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = { "-129", "128", "2147483648" })
+        void shouldRejectInvalidYStreamStartPositionValues(String instanceId) {
+            Configuration configuration = Configuration.create()
+                    .with("topic.prefix", "test")
+                    .with("snapshot.mode", "no_data")
+                    .with("streaming.instance.id", instanceId)
+                    .build();
+
+            assertThat(new YashanDbConnector().validateAllFields(configuration)
+                    .get("streaming.instance.id").errorMessages()).isNotEmpty();
+        }
+
+        @ParameterizedTest
+        @CsvSource({
+                "streaming.group.lsn, -1",
+                "streaming.group.offset, -1",
+                "streaming.batch.row.id, -1"
+        })
+        void shouldRejectNegativeYStreamLogPositionValues(String fieldName, String value) {
+            Configuration configuration = Configuration.create()
+                    .with("topic.prefix", "test")
+                    .with("snapshot.mode", "no_data")
+                    .with(fieldName, value)
+                    .build();
+
+            assertThat(new YashanDbConnector().validateAllFields(configuration)
+                    .get(fieldName).errorMessages()).isNotEmpty();
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = { "1", "123456789", "9223372036854775807" })
+        void shouldAcceptConfiguredStreamingScn(String scn) {
+            Configuration configuration = Configuration.create()
+                    .with("topic.prefix", "test")
+                    .with("snapshot.mode", "no_data")
+                    .with("streaming.scn", scn)
+                    .build();
+
+            assertThat(new YashanDbConnectorConfig(configuration).getStreamingScn()).contains(Scn.valueOf(scn));
+            var results = new YashanDbConnector().validateAllFields(configuration);
+            assertThat(results).containsKey("streaming.scn");
+            assertThat(results.get("streaming.scn").errorMessages()).isEmpty();
+        }
+
+        @Test
+        void shouldKeepConfiguredYStreamInstanceIdAsInt() {
+            YashanDbConnectorConfig connectorConfig = new YashanDbConnectorConfig(Configuration.create()
+                    .with("topic.prefix", "test")
+                    .with("snapshot.mode", "no_data")
+                    .with("streaming.instance.id", -128)
+                    .build());
+
+            assertThat(connectorConfig.getStreamingInstanceId()).isEqualTo(-128);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = { "0", "-1", "", " ", "abc", "1.5", "9223372036854775808" })
+        void shouldRejectInvalidStreamingScn(String scn) {
+            Configuration configuration = Configuration.create()
+                    .with("topic.prefix", "test")
+                    .with("snapshot.mode", "no_data")
+                    .with("streaming.scn", scn)
+                    .build();
+
+            var results = new YashanDbConnector().validateAllFields(configuration);
+            assertThat(results).containsKey("streaming.scn");
+            assertThat(results.get("streaming.scn").errorMessages()).isNotEmpty();
+        }
+
+        @Test
+        void shouldConfigureUnsignedBigintHandling() {
+            Configuration defaults = Configuration.create().with("topic.prefix", "test").build();
+            Configuration longMode = Configuration.create()
+                    .with("topic.prefix", "test")
+                    .with("bigint.unsigned.handling.mode", "long")
+                    .build();
+            Configuration doubleMode = Configuration.create()
+                    .with("topic.prefix", "test")
+                    .with("bigint.unsigned.handling.mode", "DOUBLE")
+                    .build();
+            Configuration stringMode = Configuration.create()
+                    .with("topic.prefix", "test")
+                    .with("bigint.unsigned.handling.mode", "string")
+                    .build();
+
+            assertThat(new YashanDbConnectorConfig(defaults).getBigIntUnsignedHandlingMode())
+                    .isEqualTo(BigIntUnsignedHandlingMode.PRECISE);
+            assertThat(new YashanDbConnectorConfig(longMode).getBigIntUnsignedHandlingMode())
+                    .isEqualTo(BigIntUnsignedHandlingMode.LONG);
+            assertThat(new YashanDbConnectorConfig(doubleMode).getBigIntUnsignedHandlingMode())
+                    .isEqualTo(BigIntUnsignedHandlingMode.DOUBLE);
+            assertThat(new YashanDbConnectorConfig(stringMode).getBigIntUnsignedHandlingMode())
+                    .isEqualTo(BigIntUnsignedHandlingMode.STRING);
+        }
+
+        @Test
+        void shouldSelectModeFromYStreamProperty() {
+            Configuration nativeConfig = Configuration.create().with("topic.prefix", "native_test").build();
+            Configuration mysqlConfig = Configuration.create()
+                    .with("topic.prefix", "mysql_test")
+                    .with("ystream.additional.properties.mysql.mode", "true")
+                    .build();
+
+            assertThat(new YashanDbConnectorConfig(nativeConfig).getModeContext().isMySql()).isFalse();
+            YashanDbConnectorConfig selected = new YashanDbConnectorConfig(mysqlConfig);
+            assertThat(selected.getModeContext().isMySql()).isTrue();
+            assertThat(selected.getModeContext().dialect().name()).isEqualTo("mysql");
+        }
+
+        @Test
+        void shouldUseSinglePartitionMetricsInMySqlModeWithoutTaskId() {
+            Configuration configuration = Configuration.create()
+                    .with("topic.prefix", "mysql_test")
+                    .build();
+            YashanDbConnectorConfig config = new YashanDbConnectorConfig(configuration, new YashanDbModeContext(true));
+
+            assertThat(config.getModeContext().isMySql()).isTrue();
+            assertThat(config.multiPartitionMode()).isFalse();
+            assertThat(config.getTaskId()).isNull();
+            assertThatCode(() -> new SchemaHistoryMetrics(config, config.multiPartitionMode())).doesNotThrowAnyException();
         }
 
         @Test

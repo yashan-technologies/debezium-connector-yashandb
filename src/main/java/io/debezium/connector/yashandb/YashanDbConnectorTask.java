@@ -30,6 +30,7 @@ import io.debezium.connector.base.QueueProviderService;
 import io.debezium.connector.common.BaseSourceTask;
 import io.debezium.connector.common.CdcSourceTaskContext;
 import io.debezium.connector.common.DebeziumHeaderProducer;
+import io.debezium.connector.yashandb.ystream.YStreamAdapter;
 import io.debezium.document.DocumentReader;
 import io.debezium.heartbeat.HeartbeatFactory;
 import io.debezium.jdbc.DefaultMainConnectionProvidingConnectionFactory;
@@ -114,6 +115,7 @@ public class YashanDbConnectorTask extends BaseSourceTask<YashanDbPartition, Yas
 
         Offsets<YashanDbPartition, YashanDbOffsetContext> previousOffsets = getPreviousOffsets(new YashanDbPartition.Provider(connectorConfig),
                 connectorConfig.getAdapter().getOffsetContextLoader());
+        applyRecoveryPosition(connectorConfig, previousOffsets.getTheOnlyOffset(), jdbcConnection);
 
         beanRegistryJdbcConnection = connectionFactory.newConnection();
         // Manual Bean Registration - must be done before any service that requires it is created (e.g. SnapshotterService)
@@ -222,6 +224,26 @@ public class YashanDbConnectorTask extends BaseSourceTask<YashanDbPartition, Yas
         return config.getModeContext().isMySql()
                 ? new YashanDbMySqlValueConverters(config, connection)
                 : new YashanDbValueConverters(config, connection);
+    }
+
+    static void applyRecoveryPosition(YashanDbConnectorConfig config, YashanDbOffsetContext loadedOffset, YashanDbConnection connection) {
+        if (loadedOffset == null) {
+            return;
+        }
+        if (!config.hasStreamingPosition()) {
+            LOGGER.info("Applied streaming recovery position from stored Kafka offset: {}", loadedOffset.getRecoverPosition());
+            return;
+        }
+
+        try {
+            Optional<Scn> configuredScn = config.getStreamingScn();
+            Scn streamingScn = configuredScn.isPresent() ? configuredScn.get() : connection.getCurrentScn().add(Scn.valueOf(1));
+            loadedOffset.setLcrPosition(YStreamAdapter.createRecoverPosition(config, streamingScn));
+            LOGGER.info("Applied configured streaming recovery position after loading Kafka offset: {}", loadedOffset.getRecoverPosition());
+        }
+        catch (SQLException e) {
+            throw new DebeziumException("Failed to determine the configured streaming recovery position", e);
+        }
     }
 
     @Override

@@ -86,28 +86,38 @@ Then restart Kafka Connect to load the new connector.
 
 | Property | Description | Default |
 |----------|-------------|---------|
-| `snapshot.mode` | `initial`, `initial_only`, `schema_only`, `schema_only_recovery`, `always` | `initial` |
-| `snapshot.scn` | Positive SCN for startup snapshot queries; YStream starts at this SCN plus one | Automatically determined |
+| `snapshot.mode` | `initial`, `initial_only`, `no_data`, `recovery`, `always`, `when_needed`, `configuration_based`, `custom` | `initial` |
+| `streaming.scn` | Exact positive YStream start SCN, without adding one; configurable only with `no_data` or `recovery` | Automatically determined |
+| `streaming.instance.id` | YStream recovery instance ID in `-128` to `127`; configurable only with `no_data` or `recovery` | `0` |
+| `streaming.group.lsn` | Non-negative YStream recovery group LSN; configurable only with `no_data` or `recovery` | `0` |
+| `streaming.group.offset` | Non-negative YStream recovery group offset; configurable only with `no_data` or `recovery` | `0` |
+| `streaming.batch.row.id` | Non-negative YStream recovery batch row ID; configurable only with `no_data` or `recovery` | `0` |
 | `snapshot.locking.mode` | `shared`, `none` | `shared` |
 | `snapshot.enhance.predicate.scn` | Token for snapshot predicate enhancement | - |
 | `snapshot.database.errors.max.retries` | Max retries for snapshot database errors | `0` |
 
-To take a full snapshot at a specific SCN and start streaming from the next SCN, configure:
+To start incremental capture at an exact YStream position without a full data snapshot, configure:
 
 ```json
 {
-  "snapshot.mode": "initial",
-  "snapshot.scn": "123456"
+  "snapshot.mode": "no_data",
+  "streaming.scn": "882374440345255936",
+  "streaming.instance.id": "0",
+  "streaming.group.lsn": "1277581",
+  "streaming.group.offset": "262",
+  "streaming.batch.row.id": "0"
 }
 ```
 
-The connector reads each table with `AS OF SCN 123456` and sets the YStream recovery position to `123457`. The value must be between `1` and `9223372036854775807`. If `snapshot.scn` is omitted, the connector selects the current snapshot SCN and starts streaming at the next SCN, as before.
+YStream starts at SCN `882374440345255936` with the configured log position components. `streaming.scn` accepts integers from `1` to `9223372036854775807`. It does not control snapshot queries. The snapshot SCN is determined automatically.
 
-This setting applies when a startup snapshot determines a new offset. With `snapshot.mode=initial`, an existing completed snapshot resumes from the saved streaming offset; changing `snapshot.scn` does not rewind it. Schema recovery and on-demand blocking snapshots continue to use their existing offsets. Use a fresh connector offset and schema history to start a new capture at the configured SCN.
+These five fields can only be explicitly configured with `snapshot.mode=no_data` or `recovery`. Other modes, including the default `initial`, `always` and `initial_only`, reject any of these fields, even if a log position component is explicitly set to `0` or a snapshot has already completed. Omitted log position components retain their zero defaults.
 
-The database must retain the flashback data for the selected SCN and YStream logs from the next SCN, and the captured table structures must be compatible with that point in time. For custom snapshot SELECT overrides, use `snapshot.enhance.predicate.scn` to insert the same `AS OF SCN` clause, or explicitly anchor the SELECT to the configured SCN.
+Explicitly setting any position field automatically overrides the streaming recovery position at task startup, including when a startup snapshot is skipped. If only log position components are configured, the start SCN is the current database SCN plus one. Loaded snapshot and transaction state is preserved. Without explicit position settings, the connector resumes the saved Kafka offset; on a fresh startup it determines the snapshot SCN automatically and starts streaming at the next SCN. Subsequent offset reads for commits and on-demand blocking snapshots continue to use their existing offsets. Remove the five position settings to stop reapplying the configured start position on restart.
 
-For Chinese configuration guidance, see [指定全量快照和增量起始 SCN](docs/snapshot-scn.md).
+Migration: replace `snapshot.scn` with `streaming.scn` only for incremental capture and remove `streaming.recovery.position.source`. Both old settings have been removed. A configured streaming SCN is now exact, so migrate the old SCN plus one if you need to retain the previous effective start position. Full data snapshots no longer support a configured start SCN or log position. The YStream server must retain logs for the selected position, and captured table schemas must be compatible with that position; the connector does not restore historical table structures.
+
+For Chinese configuration guidance, see [指定增量起始位点](docs/snapshot-scn.md).
 
 #### Data Types
 
@@ -130,7 +140,7 @@ The connector uses native YashanDB syntax by default. To connect to a MySQL-comp
 
 This setting selects the YStream client mode, the MySQL dialect for connector-generated SQL and table identifiers, and the JDBC `compatVector=mysql` connection property. The connector does not inspect `COMPAT_VECTOR` to select a mode. Use a separate topic prefix, offsets, and schema history when changing the mode of an existing connector.
 
-In MySQL mode, a database name is the `schema` component of the connector's table identifier, so a table is identified as `database.table`. Use `schema.include.list` and `schema.exclude.list` to filter databases. The existing `database.include.list` and `database.exclude.list` settings are also accepted in MySQL mode and applied to the schema component for compatibility. When both forms are configured, the schema setting takes precedence.
+In MySQL mode, a database name is the `schema` component of the connector's table identifier, so a table is identified as `database.table`. Use `schema.include.list` and `schema.exclude.list` to filter databases.
 
 In MySQL mode, integer columns declared `UNSIGNED` or `ZEROFILL` use wider Kafka Connect types so their full range is retained. `TINYINT UNSIGNED` maps to `INT16`, `SMALLINT UNSIGNED` and `MEDIUMINT UNSIGNED` to `INT32`, and `INT UNSIGNED` to `INT64`. `BIGINT UNSIGNED` maps to a scale-zero Connect `Decimal` by default, including values above Java's signed `long` maximum. Set `bigint.unsigned.handling.mode=long` for a signed `INT64` schema; values above `Long.MAX_VALUE` then cannot be represented correctly. Set it to `double` for an approximate `FLOAT64` value, or `string` for the exact unsigned decimal value as text. Signed values returned by YStream are restored according to the source integer width; already-positive JDBC snapshot values are preserved. This mapping is specific to MySQL mode and does not depend on `decimal.handling.mode`.
 

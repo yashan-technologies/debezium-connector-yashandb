@@ -209,27 +209,20 @@ public class YStreamAdapter extends AbstractStreamingAdapter {
                                                          YashanDbConnection connection)
             throws SQLException {
 
-        final Optional<Scn> configuredScn = connectorConfig.getSnapshotScn();
-        final Scn snapshotScn;
-        if (configuredScn.isPresent()) {
-            snapshotScn = configuredScn.get();
-        }
-        else {
-            final Optional<Scn> latestTableDdlScn = getLatestTableDdlScn(ctx, connection);
+        final Optional<Scn> latestTableDdlScn = getLatestTableDdlScn(ctx, connection);
 
-            // The snapshot timestamp must be later than the latest DDL change of any captured table.
-            Scn currentScn;
-            do {
-                currentScn = connection.getCurrentScn();
-            } while (areSameTimestamp(latestTableDdlScn.orElse(null), currentScn, connection));
+        // The snapshot timestamp must be later than the latest DDL change of any captured table.
+        Scn snapshotScn;
+        do {
+            snapshotScn = connection.getCurrentScn();
+        } while (areSameTimestamp(latestTableDdlScn.orElse(null), snapshotScn, connection));
 
-            snapshotScn = currentScn;
-        }
-        // Start streaming at the next SCN to avoid replaying changes already included in the snapshot.
-        final Scn streamingScn = snapshotScn.add(Scn.valueOf(1));
-        Position recoverPosition = new Position(new SystemChangeNumber(streamingScn.longValue()), new LogPosition());
+        // Only the automatic snapshot position advances by one; an explicit streaming SCN is exact.
+        final Optional<Scn> configuredScn = connectorConfig.getStreamingScn();
+        final Scn streamingScn = configuredScn.isPresent() ? configuredScn.get() : snapshotScn.add(Scn.valueOf(1));
+        Position recoverPosition = createRecoverPosition(connectorConfig, streamingScn);
 
-        LOGGER.info("Snapshot SCN resolved as {}, streaming starts at SCN {}", snapshotScn, streamingScn);
+        LOGGER.info("Snapshot SCN resolved as {}, streaming starts at SCN {}", snapshotScn, recoverPosition.getCommitScn().getScn());
 
         return YashanDbOffsetContext.create()
                 .logicalName(connectorConfig)
@@ -239,5 +232,31 @@ public class YStreamAdapter extends AbstractStreamingAdapter {
                 .transactionContext(new TransactionContext())
                 .incrementalSnapshotContext(new SignalBasedIncrementalSnapshotContext<>(false))
                 .build();
+    }
+
+    /**
+     * Creates a streaming recovery position from an exact streaming SCN and the configured log position fields.
+     *
+     * @param connectorConfig the connector configuration
+     * @param streamingScn the exact streaming start SCN
+     * @return the recovery position
+     */
+    public static Position createRecoverPosition(YashanDbConnectorConfig connectorConfig, Scn streamingScn) {
+        Position recoverPosition = new Position(
+                new SystemChangeNumber(streamingScn.longValue()),
+                new LogPosition((byte) connectorConfig.getStreamingInstanceId(),
+                        connectorConfig.getStreamingGroupLsn(),
+                        connectorConfig.getStreamingGroupOffset(),
+                        connectorConfig.getStreamingBatchRowId()));
+
+        LOGGER.info("Generated streaming recovery position using connector configuration: "
+                + "commitScn={}, instanceId={}, groupLsn={}, groupOffset={}, batchRowId={}",
+                recoverPosition.getCommitScn().getScn(),
+                recoverPosition.getLogPosition().getInstanceId(),
+                recoverPosition.getLogPosition().getGroupLsn(),
+                recoverPosition.getLogPosition().getGroupOffset(),
+                recoverPosition.getLogPosition().getBatchRowId());
+
+        return recoverPosition;
     }
 }
