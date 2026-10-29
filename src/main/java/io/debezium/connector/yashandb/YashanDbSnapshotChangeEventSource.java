@@ -193,7 +193,8 @@ public class YashanDbSnapshotChangeEventSource extends RelationalSnapshotChangeE
                                            YashanDbOffsetContext previousOffset)
             throws Exception {
 
-        if (previousOffset != null && !snapshotterService.getSnapshotter().shouldStreamEventsStartingFromSnapshot()) {
+        if (previousOffset != null
+                && !snapshotterService.getSnapshotter().shouldStreamEventsStartingFromSnapshot()) {
             ctx.offset = previousOffset;
             tryStartingSnapshot(ctx);
             return;

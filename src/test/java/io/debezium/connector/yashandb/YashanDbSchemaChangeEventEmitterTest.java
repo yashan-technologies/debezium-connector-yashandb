@@ -45,7 +45,7 @@ class YashanDbSchemaChangeEventEmitterTest {
     @Test
     void shouldEmitMySqlChangesUsingParsedTableIds() throws InterruptedException {
         YashanDbConnectorConfig config = spy(new YashanDbConnectorConfig(TestHelper.defaultConfig()
-                .with("database.include.list", "shop")
+                .with("schema.include.list", "shop")
                 .with("ystream.additional.properties.mysql.mode", "true").build()));
         SchemaHistory history = mock(SchemaHistory.class);
         YashanDbDatabaseSchema schema = createSchema(config, history);

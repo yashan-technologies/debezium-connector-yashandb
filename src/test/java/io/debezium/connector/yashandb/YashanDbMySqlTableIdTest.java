@@ -26,7 +26,7 @@ class YashanDbMySqlTableIdTest {
         YashanDbConnectorConfig config = new YashanDbConnectorConfig(Configuration.create()
                 .with("topic.prefix", "mysql_test")
                 .with("ystream.additional.properties.mysql.mode", "true")
-                .with("database.include.list", "inventory")
+                .with("schema.include.list", "inventory")
                 .with("table.include.list", "inventory.orders")
                 .with("column.include.list", "inventory.orders.ID")
                 .build());
@@ -59,7 +59,6 @@ class YashanDbMySqlTableIdTest {
         YashanDbConnectorConfig config = new YashanDbConnectorConfig(Configuration.create()
                 .with("topic.prefix", "mysql_test")
                 .with("ystream.additional.properties.mysql.mode", "true")
-                .with("database.include.list", "legacy")
                 .with("schema.include.list", "inventory")
                 .build());
 
@@ -67,4 +66,5 @@ class YashanDbMySqlTableIdTest {
         assertThat(config.getTableFilters().dataCollectionFilter().isIncluded(new TableId(null, "other", "orders"))).isFalse();
         assertThat(config.getTableFilters().dataCollectionFilter().isIncluded(new TableId(null, "legacy", "orders"))).isFalse();
     }
+
 }

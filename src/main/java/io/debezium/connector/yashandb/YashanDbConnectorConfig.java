@@ -92,19 +92,62 @@ public class YashanDbConnectorConfig extends HistorizedRelationalDatabaseConnect
                     + "'always': The connector runs a snapshot every time that it starts. After the snapshot completes, the connector begins to stream changes from the redo logs.; "
                     + "'initial' (default): If the connector does not detect any offsets for the logical server name, it runs a snapshot that captures the current full state of the configured tables. After the snapshot completes, the connector begins to stream changes from the redo logs. "
                     + "'initial_only': The connector performs a snapshot as it does for the 'initial' option, but after the connector completes the snapshot, it stops, and does not stream changes from the redo logs.; "
-                    + "'schema_only': If the connector does not detect any offsets for the logical server name, it runs a snapshot that captures only the schema (table structures), but not any table data. After the snapshot completes, the connector begins to stream changes from the redo logs.; "
-                    + "'schema_only_recovery': The connector performs a snapshot that captures only the database schema history. The connector then transitions to streaming from the redo logs. Use this setting to restore a corrupted or lost database schema history topic. Do not use if the database schema was modified after the connector stopped.");
+                    + "'no_data': If the connector does not detect any offsets for the logical server name, it runs a snapshot that captures only the schema (table structures), but not any table data. After the snapshot completes, the connector begins to stream changes from the redo logs.; "
+                    + "'recovery': The connector performs a snapshot that captures only the database schema history. The connector then transitions to streaming from the redo logs. Use this setting to restore a corrupted or lost database schema history topic. Do not use if the database schema was modified after the connector stopped.");
 
-    public static final Field SNAPSHOT_SCN = Field.create("snapshot.scn")
-            .withDisplayName("Snapshot SCN")
+    public static final Field STREAMING_SCN = Field.create("streaming.scn")
+            .withDisplayName("Streaming SCN")
             .withType(Type.LONG)
             .withWidth(Width.LONG)
             .withImportance(Importance.HIGH)
-            .withValidation(Field::isPositiveLong)
+            .withValidation(Field::isPositiveLong, YashanDbConnectorConfig::withoutDataSnapshot)
             .withGroup(Field.createGroupEntry(Field.Group.CONNECTOR_SNAPSHOT))
-            .withDescription("Optional positive SCN for startup snapshot queries. YStream starts streaming at this SCN plus one. "
-                    + "If unset, the connector determines the snapshot SCN automatically and starts streaming at the next SCN. "
-                    + "Does not override offsets when resuming streaming.");
+            .withDescription("Optional exact SCN at which YStream starts streaming, without adding one. "
+                    + "Only supported with snapshot.mode 'no_data' or 'recovery'. Explicit streaming position settings override the saved position at startup.");
+
+    public static final Field STREAMING_INSTANCE_ID = Field.create("streaming.instance.id")
+            .withDisplayName("YStream instance ID")
+            .withType(Type.INT)
+            .withWidth(Width.SHORT)
+            .withImportance(Importance.MEDIUM)
+            .withDefault(0)
+            .withValidation(YashanDbConnectorConfig::isByte, YashanDbConnectorConfig::withoutDataSnapshot)
+            .withGroup(Field.createGroupEntry(Field.Group.CONNECTOR_SNAPSHOT))
+            .withDescription("YStream recovery instance ID. The value must fit in one signed byte. "
+                    + "Can only be explicitly configured with snapshot.mode 'no_data' or 'recovery'.");
+
+    public static final Field STREAMING_GROUP_LSN = Field.create("streaming.group.lsn")
+            .withDisplayName("YStream group LSN")
+            .withType(Type.LONG)
+            .withWidth(Width.MEDIUM)
+            .withImportance(Importance.MEDIUM)
+            .withDefault(0L)
+            .withValidation(YashanDbConnectorConfig::isNonNegativeLong, YashanDbConnectorConfig::withoutDataSnapshot)
+            .withGroup(Field.createGroupEntry(Field.Group.CONNECTOR_SNAPSHOT))
+            .withDescription("YStream recovery group LSN. Can only be explicitly configured with snapshot.mode 'no_data' or 'recovery'.");
+
+    public static final Field STREAMING_GROUP_OFFSET = Field.create("streaming.group.offset")
+            .withDisplayName("YStream group offset")
+            .withType(Type.INT)
+            .withWidth(Width.MEDIUM)
+            .withImportance(Importance.MEDIUM)
+            .withDefault(0)
+            .withValidation(Field::isNonNegativeInteger, YashanDbConnectorConfig::withoutDataSnapshot)
+            .withGroup(Field.createGroupEntry(Field.Group.CONNECTOR_SNAPSHOT))
+            .withDescription("YStream recovery group offset. Can only be explicitly configured with snapshot.mode 'no_data' or 'recovery'.");
+
+    public static final Field STREAMING_BATCH_ROW_ID = Field.create("streaming.batch.row.id")
+            .withDisplayName("YStream batch row ID")
+            .withType(Type.INT)
+            .withWidth(Width.MEDIUM)
+            .withImportance(Importance.MEDIUM)
+            .withDefault(0)
+            .withValidation(Field::isNonNegativeInteger, YashanDbConnectorConfig::withoutDataSnapshot)
+            .withGroup(Field.createGroupEntry(Field.Group.CONNECTOR_SNAPSHOT))
+            .withDescription("YStream recovery batch row ID. Can only be explicitly configured with snapshot.mode 'no_data' or 'recovery'.");
+
+    private static final List<Field> STREAMING_POSITION_FIELDS = List.of(STREAMING_SCN, STREAMING_INSTANCE_ID,
+            STREAMING_GROUP_LSN, STREAMING_GROUP_OFFSET, STREAMING_BATCH_ROW_ID);
 
     public static final Field SNAPSHOT_LOCKING_MODE = Field.create("snapshot.locking.mode")
             .withDisplayName("Snapshot locking mode")
@@ -298,7 +341,9 @@ public class YashanDbConnectorConfig extends HistorizedRelationalDatabaseConnect
                     YSTREAM_SERVER_NAME,
                     SNAPSHOT_MODE,
                     URL)
-            .group(Field.Group.CONNECTOR_SNAPSHOT, SNAPSHOT_MODE, SNAPSHOT_SCN, SNAPSHOT_ENHANCEMENT_TOKEN, SNAPSHOT_LOCKING_MODE, SNAPSHOT_DATABASE_ERRORS_MAX_RETRIES)
+            .group(Field.Group.CONNECTOR_SNAPSHOT, SNAPSHOT_MODE, STREAMING_SCN,
+                    STREAMING_INSTANCE_ID, STREAMING_GROUP_LSN, STREAMING_GROUP_OFFSET, STREAMING_BATCH_ROW_ID,
+                    SNAPSHOT_ENHANCEMENT_TOKEN, SNAPSHOT_LOCKING_MODE, SNAPSHOT_DATABASE_ERRORS_MAX_RETRIES)
             .group(Field.Group.ADVANCED, QUERY_FETCH_SIZE)
             .group(Field.Group.CONNECTOR, INTERVAL_HANDLING_MODE, UNAVAILABLE_VALUE_PLACEHOLDER, BINARY_HANDLING_MODE, SCHEMA_NAME_ADJUSTMENT_MODE,
                     LEGACY_DECIMAL_HANDLING_STRATEGY, BIGINT_UNSIGNED_HANDLING_MODE)
@@ -332,7 +377,12 @@ public class YashanDbConnectorConfig extends HistorizedRelationalDatabaseConnect
     private final String databaseName;
     private final IntervalHandlingMode intervalHandlingMode;
     private final SnapshotMode snapshotMode;
-    private final Scn snapshotScn;
+    private final Scn streamingScn;
+    private final int streamingInstanceId;
+    private final long streamingGroupLsn;
+    private final int streamingGroupOffset;
+    private final int streamingBatchRowId;
+    private final boolean streamingPositionConfigured;
 
     private final String snapshotEnhancementToken;
     private final SnapshotLockingMode snapshotLockingMode;
@@ -370,7 +420,7 @@ public class YashanDbConnectorConfig extends HistorizedRelationalDatabaseConnect
 
     public YashanDbConnectorConfig(Configuration config, YashanDbModeContext modeContext) {
         super(
-                YashanDbConnector.class, normalizeMySqlFilters(config, modeContext),
+                YashanDbConnector.class, config,
                 new SystemTablesPredicate(),
                 x -> x.schema() + "." + x.table(),
                 false,
@@ -382,8 +432,20 @@ public class YashanDbConnectorConfig extends HistorizedRelationalDatabaseConnect
         this.databaseName = modeContext.isMySql() ? config.getString(DATABASE_NAME) : toUpperCase(config.getString(DATABASE_NAME));
         this.intervalHandlingMode = IntervalHandlingMode.parse(config.getString(INTERVAL_HANDLING_MODE));
         this.snapshotMode = SnapshotMode.parse(config.getString(SNAPSHOT_MODE));
-        String snapshotScnValue = config.getString(SNAPSHOT_SCN);
-        this.snapshotScn = snapshotScnValue == null ? null : Scn.valueOf(snapshotScnValue);
+        this.streamingPositionConfigured = STREAMING_POSITION_FIELDS.stream().anyMatch(config::hasKey);
+        if (!supportsStreamingPosition(config)) {
+            for (Field field : STREAMING_POSITION_FIELDS) {
+                if (config.hasKey(field)) {
+                    throw new IllegalArgumentException(field.name() + ": " + unsupportedStreamingPositionMessage(config));
+                }
+            }
+        }
+        String streamingScnValue = config.getString(STREAMING_SCN);
+        this.streamingScn = streamingScnValue == null ? null : Scn.valueOf(streamingScnValue);
+        this.streamingInstanceId = config.getInteger(STREAMING_INSTANCE_ID);
+        this.streamingGroupLsn = config.getLong(STREAMING_GROUP_LSN);
+        this.streamingGroupOffset = config.getInteger(STREAMING_GROUP_OFFSET);
+        this.streamingBatchRowId = config.getInteger(STREAMING_BATCH_ROW_ID);
         this.snapshotEnhancementToken = config.getString(SNAPSHOT_ENHANCEMENT_TOKEN);
         this.snapshotLockingMode = SnapshotLockingMode.parse(config.getString(SNAPSHOT_LOCKING_MODE), SNAPSHOT_LOCKING_MODE.defaultValueAsString());
         this.lobEnabled = config.getBoolean(LOB_ENABLED);
@@ -428,26 +490,6 @@ public class YashanDbConnectorConfig extends HistorizedRelationalDatabaseConnect
      */
     public String getDatabaseName() {
         return databaseName;
-    }
-
-    private static Configuration normalizeMySqlFilters(Configuration config, YashanDbModeContext modeContext) {
-        if (!modeContext.isMySql()) {
-            return config;
-        }
-        Configuration.Builder builder = config.edit()
-                .without(DATABASE_INCLUDE_LIST.name())
-                .without(DATABASE_EXCLUDE_LIST.name());
-        // MySQL databases occupy the schema component of YashanDB table identifiers.
-        // An explicit schema filter takes precedence over the compatibility aliases.
-        if (!config.hasKey(SCHEMA_INCLUDE_LIST) && !config.hasKey(SCHEMA_EXCLUDE_LIST)) {
-            if (config.hasKey(DATABASE_INCLUDE_LIST)) {
-                builder.with(SCHEMA_INCLUDE_LIST, config.getString(DATABASE_INCLUDE_LIST));
-            }
-            if (config.hasKey(DATABASE_EXCLUDE_LIST)) {
-                builder.with(SCHEMA_EXCLUDE_LIST, config.getString(DATABASE_EXCLUDE_LIST));
-            }
-        }
-        return builder.build();
     }
 
     public YashanDbModeContext getModeContext() {
@@ -495,12 +537,57 @@ public class YashanDbConnectorConfig extends HistorizedRelationalDatabaseConnect
     }
 
     /**
-     * Returns the configured SCN for startup snapshots. Streaming starts at the next SCN.
+     * Returns the exact configured streaming start SCN.
      *
-     * @return the configured SCN, or empty to determine the snapshot SCN automatically
+     * @return the configured SCN, or empty to determine the streaming SCN automatically
      */
-    public Optional<Scn> getSnapshotScn() {
-        return Optional.ofNullable(snapshotScn);
+    public Optional<Scn> getStreamingScn() {
+        return Optional.ofNullable(streamingScn);
+    }
+
+    /**
+     * Returns the configured YStream recovery instance ID.
+     *
+     * @return the recovery instance ID
+     */
+    public int getStreamingInstanceId() {
+        return streamingInstanceId;
+    }
+
+    /**
+     * Returns the configured YStream recovery group LSN.
+     *
+     * @return the recovery group LSN
+     */
+    public long getStreamingGroupLsn() {
+        return streamingGroupLsn;
+    }
+
+    /**
+     * Returns the configured YStream recovery group offset.
+     *
+     * @return the recovery group offset
+     */
+    public int getStreamingGroupOffset() {
+        return streamingGroupOffset;
+    }
+
+    /**
+     * Returns the configured YStream recovery batch row ID.
+     *
+     * @return the recovery batch row ID
+     */
+    public int getStreamingBatchRowId() {
+        return streamingBatchRowId;
+    }
+
+    /**
+     * Returns whether any streaming position field was explicitly configured.
+     *
+     * @return true even when an explicitly configured log position component is zero
+     */
+    public boolean hasStreamingPosition() {
+        return streamingPositionConfigured;
     }
 
     /**
@@ -956,6 +1043,59 @@ public class YashanDbConnectorConfig extends HistorizedRelationalDatabaseConnect
             return Field.isRequired(config, field, problems);
         }
         return 0;
+    }
+
+    private static boolean supportsStreamingPosition(Configuration config) {
+        SnapshotMode mode = SnapshotMode.parse(config.getString(SNAPSHOT_MODE));
+        return mode == SnapshotMode.NO_DATA || mode == SnapshotMode.RECOVERY;
+    }
+
+    private static String unsupportedStreamingPositionMessage(Configuration config) {
+        return "Streaming position parameters cannot be configured with snapshot.mode='" + config.getString(SNAPSHOT_MODE)
+                + "'; use 'no_data' or 'recovery'.";
+    }
+
+    private static int withoutDataSnapshot(Configuration config, Field field, ValidationOutput problems) {
+        if (config.hasKey(field) && !supportsStreamingPosition(config)) {
+            problems.accept(field, config.getString(field), unsupportedStreamingPositionMessage(config));
+            return 1;
+        }
+        return 0;
+    }
+
+    public static int isByte(Configuration config, Field field, ValidationOutput problems) {
+        String value = config.getString(field);
+        if (value == null) {
+            return 0;
+        }
+        try {
+            int parsed = Integer.parseInt(value);
+            if (parsed >= Byte.MIN_VALUE && parsed <= Byte.MAX_VALUE) {
+                return 0;
+            }
+        }
+        catch (NumberFormatException e) {
+            // Report the common validation error below.
+        }
+        problems.accept(field, value, "A byte value between -128 and 127 is expected");
+        return 1;
+    }
+
+    public static int isNonNegativeLong(Configuration config, Field field, ValidationOutput problems) {
+        String value = config.getString(field);
+        if (value == null) {
+            return 0;
+        }
+        try {
+            if (Long.parseLong(value) >= 0) {
+                return 0;
+            }
+        }
+        catch (NumberFormatException e) {
+            // Report the common validation error below.
+        }
+        problems.accept(field, value, "A non-negative long value is expected");
+        return 1;
     }
 
 }

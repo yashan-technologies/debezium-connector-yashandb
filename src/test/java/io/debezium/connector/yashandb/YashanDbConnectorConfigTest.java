@@ -15,6 +15,8 @@ import org.apache.kafka.common.config.ConfigDef;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import io.debezium.config.Configuration;
@@ -270,38 +272,146 @@ class YashanDbConnectorConfigTest {
         }
 
         @Test
-        void shouldLeaveSnapshotScnUnsetByDefault() {
+        void shouldLeaveStreamingScnUnsetByDefault() {
             Configuration configuration = Configuration.create().with("topic.prefix", "test").build();
 
-            assertThat(new YashanDbConnectorConfig(configuration).getSnapshotScn()).isEmpty();
-            assertThat(configuration.validate(Field.setOf(YashanDbConnectorConfig.SNAPSHOT_SCN))
-                    .get("snapshot.scn").errorMessages()).isEmpty();
-            assertThat(YashanDbConnectorConfig.configDef().configKeys()).containsKey("snapshot.scn");
+            assertThat(new YashanDbConnectorConfig(configuration).getStreamingScn()).isEmpty();
+            assertThat(YashanDbConnectorConfig.configDef().configKeys()).containsKey("streaming.scn");
+        }
+
+        @Test
+        void shouldExposeConfigurableYStreamStartPositionFields() {
+            assertThat(YashanDbConnectorConfig.configDef().configKeys()).containsKeys(
+                    "streaming.scn",
+                    "streaming.instance.id",
+                    "streaming.group.lsn",
+                    "streaming.group.offset",
+                    "streaming.batch.row.id")
+                    .doesNotContainKeys("snapshot.scn", "streaming.recovery.position.source");
+        }
+
+        @ParameterizedTest
+        @NullSource
+        @ValueSource(strings = { "initial", "always", "initial_only", "when_needed", "configuration_based", "custom" })
+        void shouldRejectExplicitPositionsInDataSnapshotModes(String mode) {
+            for (String field : List.of("streaming.scn", "streaming.instance.id", "streaming.group.lsn",
+                    "streaming.group.offset", "streaming.batch.row.id")) {
+                Configuration.Builder builder = Configuration.create().with("topic.prefix", "test");
+                if (mode != null) {
+                    builder.with("snapshot.mode", mode);
+                }
+                Configuration configuration = builder.with(field, field.equals("streaming.scn") ? "123456" : "0").build();
+                var results = new YashanDbConnector().validateAllFields(configuration);
+
+                assertThat(results).containsKey(field);
+                assertThat(results.get(field).errorMessages()).as("%s in mode %s", field, mode)
+                        .anySatisfy(message -> assertThat(message).contains("snapshot.mode"));
+                assertThatThrownBy(() -> new YashanDbConnectorConfig(configuration))
+                        .isInstanceOf(IllegalArgumentException.class).hasMessageContaining(field).hasMessageContaining("snapshot.mode");
+            }
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = { "no_data", "recovery", "NO_DATA" })
+        void shouldAcceptExplicitPositionsWithoutDataSnapshots(String mode) {
+            Configuration configuration = Configuration.create()
+                    .with("topic.prefix", "test")
+                    .with("snapshot.mode", mode)
+                    .with("streaming.scn", "882374440345255936")
+                    .with("streaming.instance.id", 0)
+                    .with("streaming.group.lsn", 1277581L)
+                    .with("streaming.group.offset", 262)
+                    .with("streaming.batch.row.id", 0)
+                    .build();
+
+            var results = new YashanDbConnector().validateAllFields(configuration);
+            for (String field : List.of("streaming.scn", "streaming.instance.id", "streaming.group.lsn",
+                    "streaming.group.offset", "streaming.batch.row.id")) {
+                assertThat(results).containsKey(field);
+                assertThat(results.get(field).errorMessages()).isEmpty();
+            }
+            assertThatCode(() -> new YashanDbConnectorConfig(configuration)).doesNotThrowAnyException();
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = { "initial", "always", "initial_only", "when_needed", "configuration_based", "custom", "no_data", "recovery" })
+        void shouldAllowOmittedPositionDefaultsInEveryMode(String mode) {
+            Configuration configuration = Configuration.create().with("topic.prefix", "test").with("snapshot.mode", mode).build();
+
+            for (String field : List.of("streaming.instance.id", "streaming.group.lsn", "streaming.group.offset", "streaming.batch.row.id")) {
+                assertThat(new YashanDbConnector().validateAllFields(configuration).get(field).errorMessages()).isEmpty();
+            }
+            assertThatCode(() -> new YashanDbConnectorConfig(configuration)).doesNotThrowAnyException();
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = { "-129", "128", "2147483648" })
+        void shouldRejectInvalidYStreamStartPositionValues(String instanceId) {
+            Configuration configuration = Configuration.create()
+                    .with("topic.prefix", "test")
+                    .with("snapshot.mode", "no_data")
+                    .with("streaming.instance.id", instanceId)
+                    .build();
+
+            assertThat(new YashanDbConnector().validateAllFields(configuration)
+                    .get("streaming.instance.id").errorMessages()).isNotEmpty();
+        }
+
+        @ParameterizedTest
+        @CsvSource({
+                "streaming.group.lsn, -1",
+                "streaming.group.offset, -1",
+                "streaming.batch.row.id, -1"
+        })
+        void shouldRejectNegativeYStreamLogPositionValues(String fieldName, String value) {
+            Configuration configuration = Configuration.create()
+                    .with("topic.prefix", "test")
+                    .with("snapshot.mode", "no_data")
+                    .with(fieldName, value)
+                    .build();
+
+            assertThat(new YashanDbConnector().validateAllFields(configuration)
+                    .get(fieldName).errorMessages()).isNotEmpty();
         }
 
         @ParameterizedTest
         @ValueSource(strings = { "1", "123456789", "9223372036854775807" })
-        void shouldAcceptConfiguredSnapshotScn(String scn) {
+        void shouldAcceptConfiguredStreamingScn(String scn) {
             Configuration configuration = Configuration.create()
                     .with("topic.prefix", "test")
-                    .with(YashanDbConnectorConfig.SNAPSHOT_SCN, scn)
+                    .with("snapshot.mode", "no_data")
+                    .with("streaming.scn", scn)
                     .build();
 
-            assertThat(new YashanDbConnectorConfig(configuration).getSnapshotScn()).contains(Scn.valueOf(scn));
-            assertThat(configuration.validate(Field.setOf(YashanDbConnectorConfig.SNAPSHOT_SCN))
-                    .get("snapshot.scn").errorMessages()).isEmpty();
+            assertThat(new YashanDbConnectorConfig(configuration).getStreamingScn()).contains(Scn.valueOf(scn));
+            var results = new YashanDbConnector().validateAllFields(configuration);
+            assertThat(results).containsKey("streaming.scn");
+            assertThat(results.get("streaming.scn").errorMessages()).isEmpty();
+        }
+
+        @Test
+        void shouldKeepConfiguredYStreamInstanceIdAsInt() {
+            YashanDbConnectorConfig connectorConfig = new YashanDbConnectorConfig(Configuration.create()
+                    .with("topic.prefix", "test")
+                    .with("snapshot.mode", "no_data")
+                    .with("streaming.instance.id", -128)
+                    .build());
+
+            assertThat(connectorConfig.getStreamingInstanceId()).isEqualTo(-128);
         }
 
         @ParameterizedTest
         @ValueSource(strings = { "0", "-1", "", " ", "abc", "1.5", "9223372036854775808" })
-        void shouldRejectInvalidSnapshotScn(String scn) {
+        void shouldRejectInvalidStreamingScn(String scn) {
             Configuration configuration = Configuration.create()
                     .with("topic.prefix", "test")
-                    .with(YashanDbConnectorConfig.SNAPSHOT_SCN, scn)
+                    .with("snapshot.mode", "no_data")
+                    .with("streaming.scn", scn)
                     .build();
 
-            assertThat(new YashanDbConnector().validateAllFields(configuration)
-                    .get("snapshot.scn").errorMessages()).isNotEmpty();
+            var results = new YashanDbConnector().validateAllFields(configuration);
+            assertThat(results).containsKey("streaming.scn");
+            assertThat(results.get("streaming.scn").errorMessages()).isNotEmpty();
         }
 
         @Test

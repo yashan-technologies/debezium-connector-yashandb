@@ -67,7 +67,7 @@ public final class YStreamConfigBuilder {
 
     /** Returns the configured YStream MySQL mode before a complete client config can be built. */
     public static boolean mysqlMode(Map<String, String> properties) {
-        for (Map.Entry<String, String> option : validate(properties).entrySet()) {
+        for (Map.Entry<String, String> option : properties.entrySet()) {
             if (normalizedName(option.getKey()).equals("mysqlmode")) {
                 return (boolean) convert(option.getValue(), boolean.class);
             }
