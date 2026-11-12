@@ -13,6 +13,7 @@ import org.apache.kafka.common.config.ConfigDef;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import io.debezium.config.Configuration;
 import io.debezium.config.Field;
 import io.debezium.connector.yashandb.YashanDBConnectorConfig.IntervalHandlingMode;
 import io.debezium.connector.yashandb.YashanDBConnectorConfig.SnapshotLockingMode;
@@ -22,6 +23,27 @@ import io.debezium.connector.yashandb.YashanDBConnectorConfig.SnapshotMode;
  * Unit tests for {@link YashanDBConnectorConfig} and its nested enums.
  */
 class YashanDBConnectorConfigTest {
+
+    @Test
+    void shouldDefaultToProcessingEventsBeforeOffset() {
+        assertThat(YashanDBConnectorConfig.YSTREAM_SKIP_EVENTS_BEFORE_OFFSET.name())
+                .isEqualTo("ystream.skip.events.before.offset");
+        assertThat(YashanDBConnectorConfig.YSTREAM_SKIP_EVENTS_BEFORE_OFFSET.defaultValueAsString())
+                .isEqualTo("false");
+        assertThat(YashanDBConnectorConfig.ALL_FIELDS)
+                .contains(YashanDBConnectorConfig.YSTREAM_SKIP_EVENTS_BEFORE_OFFSET);
+        assertThat(new YashanDBConnectorConfig(Configuration.create().build())
+                .getYstreamSkipEventsBeforeOffset()).isFalse();
+    }
+
+    @Test
+    void shouldReadSkipEventsBeforeOffsetSetting() {
+        Configuration configuration = Configuration.create()
+                .with("ystream.skip.events.before.offset", true)
+                .build();
+
+        assertThat(new YashanDBConnectorConfig(configuration).getYstreamSkipEventsBeforeOffset()).isTrue();
+    }
 
     // -----------------------------------------------------------------------
     // IntervalHandlingMode

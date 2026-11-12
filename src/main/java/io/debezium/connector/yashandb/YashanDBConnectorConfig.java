@@ -532,6 +532,15 @@ public class YashanDBConnectorConfig extends HistorizedRelationalDatabaseConnect
             .withDefault(false)
             .withDescription("Whether the YStream client should enable fault-tolerant processing.");
 
+    public static final Field YSTREAM_SKIP_EVENTS_BEFORE_OFFSET = Field.create("ystream.skip.events.before.offset")
+            .withDisplayName("Skip YStream events before the saved offset")
+            .withType(Type.BOOLEAN)
+            .withWidth(Width.MEDIUM)
+            .withImportance(Importance.LOW)
+            .withDefault(false)
+            .withDescription("Whether to skip YStream events whose position is before the saved LCR position. "
+                    + "By default, such events are still processed to retain out-of-order events across nodes.");
+
     /**
      * Additional YStream builder options. Entries use the form {@code option.name=value}; the option name is mapped to
      * the corresponding YStream builder setter (for example, {@code enable.sequence.next.val=true} maps to
@@ -641,6 +650,7 @@ public class YashanDBConnectorConfig extends HistorizedRelationalDatabaseConnect
                     YSTREAM_POLL_TIMEOUT,
                     YSTREAM_QUEUE_SIZE,
                     YSTREAM_FAULT_TOLERANCE,
+                    YSTREAM_SKIP_EVENTS_BEFORE_OFFSET,
                     YSTREAM_ADDITIONAL_PROPERTIES,
                     LOGIC_SHARD_ENABLED,
                     TABLE_READ_THREADS,
@@ -745,6 +755,7 @@ public class YashanDBConnectorConfig extends HistorizedRelationalDatabaseConnect
     private final int yStreamPollTimeout;
     private final int yStreamClientResponseTimeout;
     private final boolean yStreamFaultTolerance;
+    private final boolean yStreamSkipEventsBeforeOffset;
     private final List<String> yStreamAdditionalProperties;
     private final Boolean logicShardEnabled;
     private final int tableReadThreads;
@@ -816,6 +827,7 @@ public class YashanDBConnectorConfig extends HistorizedRelationalDatabaseConnect
         this.yStreamQueueSize = config.getInteger(YSTREAM_QUEUE_SIZE);
         this.yStreamClientResponseTimeout = config.getInteger(YSTREAM_CLIENT_RESPONSE_TIMEOUT);
         this.yStreamFaultTolerance = config.getBoolean(YSTREAM_FAULT_TOLERANCE);
+        this.yStreamSkipEventsBeforeOffset = config.getBoolean(YSTREAM_SKIP_EVENTS_BEFORE_OFFSET);
         this.yStreamAdditionalProperties = Collections.unmodifiableList(config.getList(YSTREAM_ADDITIONAL_PROPERTIES));
 
         // Shard
@@ -865,6 +877,10 @@ public class YashanDBConnectorConfig extends HistorizedRelationalDatabaseConnect
 
     public boolean getYstreamFaultTolerance() {
         return yStreamFaultTolerance;
+    }
+
+    public boolean getYstreamSkipEventsBeforeOffset() {
+        return yStreamSkipEventsBeforeOffset;
     }
 
     public List<String> getYstreamAdditionalProperties() {

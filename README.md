@@ -31,6 +31,10 @@ mvn clean verify -Dquick
 
 [docs](./docs).
 
+### YStream 旧位置事件处理
+
+`ystream.skip.events.before.offset` 控制收到的位置早于已保存 LCR 位置时是否跳过该事件。默认值为 `false`，继续处理事件；设置为 `true` 时直接跳过，且不更新 offset。多节点事件可能乱序到达，开启跳过可能造成数据遗漏。位置相等的事件不受此配置影响。
+
 ## LICENSE
 
 The connector is under the [Apache License 2.0](../LICENSE.txt).

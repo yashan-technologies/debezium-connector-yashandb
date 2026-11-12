@@ -6,9 +6,17 @@
 package io.debezium.connector.yashandb.ystream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import org.junit.jupiter.api.Test;
+
+import com.sics.ystream.result.LogPosition;
+import com.sics.ystream.result.Position;
+import com.sics.ystream.result.SystemChangeNumber;
+import com.sics.ystream.result.YstreamXactCommit;
 
 import io.debezium.connector.yashandb.YashanDBConnectorConfig;
 import io.debezium.connector.yashandb.YashanDBDatabaseSchema;
@@ -25,6 +33,52 @@ import io.debezium.util.Clock;
  * This test verifies basic class structure and helper methods.
  */
 class YStreamEventHandlerTest {
+
+    @Test
+    void shouldProcessEventBeforeOffsetByDefault() throws Exception {
+        YashanDBConnectorConfig config = mock(YashanDBConnectorConfig.class);
+        YashanDBOffsetContext offsetContext = mock(YashanDBOffsetContext.class);
+        EventDispatcher dispatcher = mock(EventDispatcher.class);
+        Position previous = position(200);
+        Position current = position(100);
+        when(offsetContext.getLcrPosition()).thenReturn(previous);
+
+        handler(config, offsetContext, dispatcher).processRecord(
+                new YStreamRecord(new YstreamXactCommit(0, current, 0, 1), null));
+
+        verify(offsetContext).setLcrPosition(current);
+        verify(dispatcher).dispatchTransactionCommittedEvent(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void shouldSkipEventBeforeOffsetWhenConfigured() throws Exception {
+        YashanDBConnectorConfig config = mock(YashanDBConnectorConfig.class);
+        when(config.getYstreamSkipEventsBeforeOffset()).thenReturn(true);
+        YashanDBOffsetContext offsetContext = mock(YashanDBOffsetContext.class);
+        EventDispatcher dispatcher = mock(EventDispatcher.class);
+        Position previous = position(200);
+        Position current = position(100);
+        when(offsetContext.getLcrPosition()).thenReturn(previous);
+
+        handler(config, offsetContext, dispatcher).processRecord(
+                new YStreamRecord(new YstreamXactCommit(0, current, 0, 1), null));
+
+        verify(offsetContext, never()).setLcrPosition(current);
+        verify(dispatcher, never()).dispatchTransactionCommittedEvent(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    private static Position position(long scn) {
+        return new Position(new SystemChangeNumber(scn), new LogPosition());
+    }
+
+    private static YStreamEventHandler handler(YashanDBConnectorConfig config, YashanDBOffsetContext offsetContext,
+                                                EventDispatcher dispatcher) {
+        return new YStreamEventHandler(config, mock(ErrorHandler.class), dispatcher, mock(Clock.class),
+                mock(YashanDBDatabaseSchema.class), new YashanDBPartition("server", "db"), offsetContext,
+                mock(YStreamStreamingChangeEventSource.class), mock(YashanDBStreamingChangeEventSourceMetrics.class));
+    }
 
     @Test
     void shouldCreateEventHandlerWithValidParameters() throws Exception {
