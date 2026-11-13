@@ -10,7 +10,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import java.util.stream.Collectors;
 
 import org.apache.kafka.connect.data.Struct;
@@ -94,74 +93,6 @@ public abstract class BaseChangeRecordEmitter<T> extends RelationalChangeRecordE
     protected void emitTruncateRecord(Receiver receiver, TableSchema tableSchema) throws InterruptedException {
         Struct envelope = tableSchema.getEnvelopeSchema().truncate(getOffset().getSourceInfo(), getClock().currentTimeAsInstant());
         receiver.changeRecord(getPartition(), tableSchema, Operation.TRUNCATE, null, envelope, getOffset(), null);
-    }
-
-    @Override
-    protected void emitUpdateRecord(Receiver<YashanDbPartition> receiver, TableSchema tableSchema)
-            throws InterruptedException {
-        Object[] oldColumnValues = getOldColumnValues();
-        Object[] newColumnValues = getNewColumnValues();
-
-        Struct oldKey = tableSchema.keyFromColumnData(oldColumnValues);
-        Struct newKey = tableSchema.keyFromColumnData(newColumnValues);
-
-        Struct newValue = tableSchema.valueFromColumnData(newColumnValues);
-        Struct oldValue = tableSchema.valueFromColumnData(oldColumnValues);
-
-        if (skipEmptyMessages() && (newColumnValues == null || newColumnValues.length == 0)) {
-            LOGGER.debug("no new values found for table '{}' from update message at '{}'; skipping record", tableSchema, getOffset().getSourceInfo());
-            return;
-        }
-
-        /*
-         * If skip.messages.without.change is configured true,
-         * Skip Publishing the message in case there is no change in monitored columns
-         * (Postgres) Only works if REPLICA IDENTITY is set to FULL - as oldValues won't be available
-         */
-        if (skipMessagesWithoutChange() && Objects.nonNull(newValue) && newValue.equals(oldValue)) {
-            LOGGER.debug("No new values found for table '{}' in included columns from update message at '{}'; skipping record", tableSchema,
-                    getOffset().getSourceInfo());
-            return;
-        }
-        // some configurations does not provide old values in case of updates
-        // in this case we handle all updates as regular ones
-        if (oldKey == null || Objects.equals(oldKey, newKey)) {
-            newValue = notUpdateLobNeedQueryLob(tableSchema, newKey, newValue);
-            Struct envelope = tableSchema.getEnvelopeSchema().update(oldValue, newValue, getOffset().getSourceInfo(), getClock().currentTimeAsInstant());
-            receiver.changeRecord(getPartition(), tableSchema, Operation.UPDATE, newKey, envelope, getOffset(), null);
-        }
-        // PK update -> emit as delete and re-insert with new key
-        else {
-            emitUpdateAsPrimaryKeyChangeRecord(receiver, tableSchema, oldKey, newKey, oldValue, newValue);
-        }
-    }
-
-    private Struct notUpdateLobNeedQueryLob(TableSchema tableSchema, Struct newKey, Struct newValue) {
-        final List<Column> reselectColumns = getReselectColumns(newValue);
-        if (!reselectColumns.isEmpty()) {
-            LOGGER.info("Table '{}' primary key '{}' via an UPDATE, re-selecting LOB columns {} out of bands.",
-                    table.id(), newKey, reselectColumns.stream().map(Column::name).collect(Collectors.toList()));
-
-            final JdbcConfiguration jdbcConfig = connectorConfig.getJdbcConfig();
-            try (YashanDbConnection connection = new YashanDbConnection(jdbcConfig, connectorConfig.getModeContext())) {
-                final String query = getReselectQuery(reselectColumns, table, connection);
-                connection.prepareQuery(query,
-                        ps -> prepareReselectQueryStatement(ps, table, newKey),
-                        rs -> updateNewValuesFromReselectQueryResults(rs, reselectColumns));
-
-                // newColumnValues have been updated via re-select, re-create the event's value
-                //
-                // NOTE: The conversion of the column data must occur within the current connection's context.
-                // This is because the converters for LOB may make specific callbacks to the underlying database
-                // and if the converter is called outside the scope of the current LOB object, the call will
-                // fail due to database connection being unavailable.
-                newValue = tableSchema.valueFromColumnData(newColumnValues);
-            }
-            catch (SQLException e) {
-                throw new DebeziumException("Failed to re-select table with LOB columns due to primary key update", e);
-            }
-        }
-        return newValue;
     }
 
     @Override
